@@ -1,0 +1,1 @@
+{"version":3,"file":"vector.d.ts","sourceRoot":"","sources":["../../../src/grpc/clients/vector.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,WAAW,EAAE,MAAM,2BAA2B,CAAC;AAExD,qBAAa,mBAAmB;gBAClB,QAAQ,EAAE,MAAM,EAAE,YAAY,EAAE,WAAW,EAAE,OAAO,GAAE,OAAc;CAGjF"}

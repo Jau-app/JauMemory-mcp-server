@@ -1,0 +1,1 @@
+{"version":3,"file":"vector.js","sourceRoot":"","sources":["../../../src/grpc/clients/vector.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,mBAAmB;IAC9B,YAAY,QAAgB,EAAE,YAAyB,EAAE,UAAmB,IAAI;QAC9E,sBAAsB;IACxB,CAAC;CACF"}
