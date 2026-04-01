@@ -1,0 +1,449 @@
+syntax = "proto3";
+
+package jaumemory.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// SkillService — composed workflows that chain tools together.
+service SkillService {
+  // Create a new skill workflow
+  rpc CreateSkill(CreateSkillRequest) returns (Skill);
+
+  // List skills for the authenticated user (+ public skills)
+  rpc ListSkills(ListSkillsRequest) returns (SkillList);
+
+  // Get a single skill by ID or slug
+  rpc GetSkill(GetSkillRequest) returns (Skill);
+
+  // Update skill definition
+  rpc UpdateSkill(UpdateSkillRequest) returns (Skill);
+
+  // Delete a skill (soft delete)
+  rpc DeleteSkill(DeleteSkillRequest) returns (google.protobuf.Empty);
+
+  // Render skill as a SKILL.md-format document (with all tool instructions, redacted)
+  rpc RenderSkill(RenderSkillRequest) returns (RenderedSkillDocument);
+
+  // Execute a skill workflow end-to-end
+  rpc ExecuteSkill(ExecuteSkillRequest) returns (ExecuteSkillResponse);
+
+  // Add a tool step to a skill
+  rpc AddStep(AddStepRequest) returns (Skill);
+
+  // Remove a tool step from a skill
+  rpc RemoveStep(RemoveStepRequest) returns (Skill);
+
+  // Reorder tool steps in a skill
+  rpc ReorderSteps(ReorderStepsRequest) returns (Skill);
+
+  // Unified search across tools and skills
+  rpc SearchToolkit(SearchToolkitRequest) returns (SearchToolkitResponse);
+}
+
+// SkillScheduleService — scheduling + execution log queries (Phase F).
+service SkillScheduleService {
+  rpc ScheduleSkill(ScheduleSkillRequest) returns (ScheduledRunMsg);
+  rpc ListSchedules(ListSchedulesRequest) returns (ScheduledRunList);
+  rpc UpdateSchedule(UpdateScheduleMsg) returns (ScheduledRunMsg);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (google.protobuf.Empty);
+  rpc RetriggerSchedule(RetriggerScheduleRequest) returns (ScheduledRunMsg);
+  rpc ListExecutionLogs(ListExecutionLogsRequest) returns (ExecutionLogList);
+  rpc GetExecutionLog(GetExecutionLogRequest) returns (ExecutionLogMsg);
+}
+
+// ─────────────────────────────────────────────
+// Core skill message
+// ─────────────────────────────────────────────
+
+message Skill {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  optional string description = 4;
+  string version = 5;
+
+  // Type and category
+  string skill_type = 6;              // workflow, converter, generator, analyzer, connector
+  optional string category_id = 7;
+  optional string category_name = 8;  // denormalized for display
+
+  // Workflow definition
+  repeated string trigger_phrases = 9;
+  string workflow_steps_json = 10;     // JSON array of step definitions
+
+  // Schema
+  optional string input_schema_json = 11;
+  optional string output_schema_json = 12;
+
+  // Visibility and usage
+  bool is_public = 13;
+  bool is_active = 14;
+  int64 usage_count = 15;
+  optional google.protobuf.Timestamp last_used_at = 16;
+
+  // Tags and metadata
+  repeated string tags = 17;
+  string metadata_json = 18;
+
+  // Linked tools (populated on GetSkill)
+  repeated SkillToolStep tool_steps = 19;
+
+  // Timestamps
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp updated_at = 21;
+
+  // Pipeline fields (Phase A)
+  optional string pipeline_json = 22;
+  optional string tldr_json = 23;
+  optional string safety_limits_json = 24;
+  optional string schedule_json = 25;
+  optional string credential_rotation_config_json = 26;
+}
+
+// Junction record: a tool linked to a skill at a given step
+message SkillToolStep {
+  string id = 1;
+  string tool_id = 2;
+  string tool_name = 3;               // denormalized for display
+  string tool_slug = 4;
+  int32 step_order = 5;
+  string input_mapping_json = 6;
+  string output_mapping_json = 7;
+  bool is_optional = 8;
+  optional string condition_json = 9;
+}
+
+// ─────────────────────────────────────────────
+// Request messages
+// user_id always from interceptor, never from request.
+// ─────────────────────────────────────────────
+
+message CreateSkillRequest {
+  string name = 1;
+  optional string description = 2;
+  string skill_type = 3;
+  optional string category_id = 4;
+
+  // Workflow
+  repeated string trigger_phrases = 5;
+  optional string workflow_steps_json = 6;
+
+  // Schema
+  optional string input_schema_json = 7;
+  optional string output_schema_json = 8;
+
+  // Visibility
+  optional bool is_public = 9;
+
+  // Tags and metadata
+  repeated string tags = 10;
+  optional string metadata_json = 11;
+
+  // Pipeline fields (Phase A)
+  optional string pipeline_json = 12;
+  optional string tldr_json = 13;
+  optional string safety_limits_json = 14;
+}
+
+message ListSkillsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  optional string skill_type = 3;
+  optional string category_id = 4;
+  optional bool active_only = 5;
+  optional bool include_public = 6;
+  optional string search = 7;
+}
+
+message SkillList {
+  repeated Skill skills = 1;
+  int32 total = 2;
+}
+
+message GetSkillRequest {
+  // Either id or slug — service resolves
+  string identifier = 1;
+}
+
+message UpdateSkillRequest {
+  string skill_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string skill_type = 4;
+  optional string category_id = 5;
+
+  repeated string trigger_phrases = 6;
+  optional string workflow_steps_json = 7;
+
+  optional string input_schema_json = 8;
+  optional string output_schema_json = 9;
+
+  optional bool is_public = 10;
+  optional bool is_active = 11;
+
+  repeated string tags = 12;
+  optional string metadata_json = 13;
+
+  // Pipeline fields (Phase A)
+  optional string pipeline_json = 14;
+  optional string tldr_json = 15;
+  optional string safety_limits_json = 16;
+}
+
+message DeleteSkillRequest {
+  string skill_id = 1;
+}
+
+message RenderSkillRequest {
+  string skill_id = 1;
+}
+
+message RenderedSkillDocument {
+  string markdown = 1;
+  string title = 2;
+  int32 tool_count = 3;
+}
+
+message ExecuteSkillRequest {
+  // Identify skill by slug (must be owned by caller)
+  string slug = 1;
+
+  // Input data (JSON string matching skill's input_schema)
+  optional string input_json = 2;
+
+  // Per-step parameter overrides
+  map<string, string> step_overrides = 3;
+
+  // Resume fields (Phase C)
+  optional string resume_token = 4;
+  optional string llm_response = 5;
+}
+
+message ExecuteSkillResponse {
+  bool success = 1;
+  optional string error = 2;
+
+  // Per-step results
+  repeated StepResult step_results = 3;
+
+  // Final aggregated output
+  optional string output_json = 4;
+
+  int64 total_duration_ms = 5;
+
+  // Aggregate classification: highest sensitivity seen across all steps.
+  // If ANY step is SENSITIVE, this is SENSITIVE and output_json is [REDACTED].
+  OutputClassification output_classification = 6;
+
+  // Pause fields (Phase C)
+  bool paused = 7;
+  optional string llm_prompt = 8;
+  optional string llm_context_json = 9;
+  repeated string llm_options = 10;
+  optional string resume_token = 11;
+}
+
+// Classification of output sensitivity — drives consumer-side handling.
+// Service MUST set this on every StepResult and on ExecuteSkillResponse.
+enum OutputClassification {
+  OUTPUT_UNCLASSIFIED = 0;    // Not yet classified (treat as SENSITIVE by consumers)
+  OUTPUT_PUBLIC = 1;          // Safe to display, log, and cache
+  OUTPUT_INTERNAL = 2;        // Safe to display but must not be logged or cached
+  OUTPUT_SENSITIVE = 3;       // Contains secrets — response_body is [REDACTED], consumers must not attempt recovery
+}
+
+message StepResult {
+  int32 step_order = 1;
+  string tool_slug = 2;
+  bool success = 3;
+  optional string error = 4;
+  int32 http_status = 5;
+  optional string response_body = 6;
+  int64 duration_ms = 7;
+  bool skipped = 8;                                // true if optional step condition was false
+  OutputClassification output_classification = 9;  // service-enforced; SENSITIVE → response_body is [REDACTED]
+
+  // Pipeline step identity (Phase A)
+  string step_id = 10;
+  string step_type = 11;
+}
+
+// ─────────────────────────────────────────────
+// Step management
+// ─────────────────────────────────────────────
+
+message AddStepRequest {
+  string skill_id = 1;
+  string tool_id = 2;
+  int32 step_order = 3;
+  optional string input_mapping_json = 4;
+  optional string output_mapping_json = 5;
+  optional bool is_optional = 6;
+  optional string condition_json = 7;
+}
+
+message RemoveStepRequest {
+  string skill_id = 1;
+  string step_id = 2;     // skill_tools.id
+}
+
+message ReorderStepsRequest {
+  string skill_id = 1;
+  // Ordered list of step IDs in desired order
+  repeated string step_ids = 2;
+}
+
+// ─────────────────────────────────────────────
+// Toolkit search (unified across tools + skills)
+// ─────────────────────────────────────────────
+
+message SearchToolkitRequest {
+  string query = 1;
+  int32 limit = 2;
+  optional string category_id = 3;
+  optional bool tools_only = 4;
+  optional bool skills_only = 5;
+}
+
+message SearchToolkitResponse {
+  repeated ToolkitSearchResult results = 1;
+  int32 total = 2;
+}
+
+message ToolkitSearchResult {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  optional string description = 4;
+  string result_type = 5;             // "tool" or "skill"
+  optional string category_name = 6;
+  repeated string tags = 7;
+  bool is_public = 8;
+  int64 usage_count = 9;
+}
+
+// ─────────────────────────────────────────────
+// Skill version (immutable history)
+// ─────────────────────────────────────────────
+
+message SkillVersion {
+  string id = 1;
+  string skill_id = 2;
+  string version = 3;
+  optional string changelog = 4;
+  optional string workflow_steps_json = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// ─────────────────────────────────────────────
+// Category (read from skill_categories table)
+// ─────────────────────────────────────────────
+
+message Category {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  optional string description = 4;
+  optional string icon = 5;
+  optional string parent_id = 6;
+  int32 sort_order = 7;
+}
+
+message CategoryList {
+  repeated Category categories = 1;
+}
+
+// ─────────────────────────────────────────────
+// Scheduling messages (Phase F)
+// ─────────────────────────────────────────────
+
+message ScheduleSkillRequest {
+  string skill_id = 1;
+  string cron_expression = 2;
+  optional string timezone = 3;
+  optional int32 max_retries = 4;
+  optional int32 retry_delay_seconds = 5;
+  optional bool notify_on_failure = 6;
+  optional bool notify_on_success = 7;
+}
+
+message ListSchedulesRequest {
+  optional string skill_id = 1;
+  optional string status = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message UpdateScheduleMsg {
+  string schedule_id = 1;
+  optional string cron_expression = 2;
+  optional bool enabled = 3;
+  optional int32 max_retries = 4;
+  optional int32 retry_delay_seconds = 5;
+  optional bool notify_on_failure = 6;
+  optional bool notify_on_success = 7;
+}
+
+message DeleteScheduleRequest {
+  string schedule_id = 1;
+}
+
+message RetriggerScheduleRequest {
+  string schedule_id = 1;
+}
+
+message ScheduledRunMsg {
+  string id = 1;
+  string skill_id = 2;
+  string cron_expression = 3;
+  string timezone = 4;
+  string status = 5;
+  optional string next_run_at = 6;
+  optional string last_run_at = 7;
+  optional int64 last_run_duration_ms = 8;
+  optional bool last_run_success = 9;
+  optional string last_error = 10;
+  int64 run_count = 11;
+  int32 max_retries = 12;
+  int32 retry_count = 13;
+  bool notify_on_failure = 14;
+  bool notify_on_success = 15;
+  bool enabled = 16;
+  string created_at = 17;
+  string updated_at = 18;
+}
+
+message ScheduledRunList {
+  repeated ScheduledRunMsg runs = 1;
+}
+
+message ListExecutionLogsRequest {
+  optional string skill_id = 1;
+  optional string status = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message GetExecutionLogRequest {
+  string log_id = 1;
+}
+
+message ExecutionLogMsg {
+  string id = 1;
+  string skill_id = 2;
+  string status = 3;
+  optional string current_step_id = 4;
+  string step_results_json = 5;
+  optional string output_classification = 6;
+  optional int64 total_duration_ms = 7;
+  optional string error = 8;
+  string started_at = 9;
+  optional string completed_at = 10;
+  string created_at = 11;
+  optional string scheduled_run_id = 12;
+}
+
+message ExecutionLogList {
+  repeated ExecutionLogMsg logs = 1;
+}

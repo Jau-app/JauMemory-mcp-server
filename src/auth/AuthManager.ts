@@ -242,11 +242,7 @@ export class AuthManager {
     // Step 3: Authenticate with request_id and auth_token
     await this.authenticateWithToken(request_id, userProvidedToken);
 
-    // Save credentials for future use
-    logger.info('Authentication successful!');
-    logger.info(`Add these to your .env file for future sessions:`);
-    logger.info(`JAUMEMORY_REQUEST_ID=${request_id}`);
-    logger.info(`JAUMEMORY_AUTH_TOKEN=${userProvidedToken}`);
+    logger.info('Authentication successful. Credentials cached locally.');
   }
 
   private async authenticateWithToken(requestId: string, authToken: string): Promise<void> {

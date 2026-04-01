@@ -9,6 +9,7 @@ import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
+import { redactSecrets } from '../../utils/redaction.js';
 import { AuthManager } from '../../auth/AuthManager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,18 +101,18 @@ export class MemoryServiceClient {
     const metadata = new grpc.Metadata();
     const authHeaders = await this.authManager.getAuthHeaders();
     
-    logger.debug('Creating gRPC metadata with auth headers:', authHeaders);
-    
+    logger.debug('Creating gRPC metadata with auth headers:', redactSecrets(authHeaders));
+
     // Add auth headers
     Object.entries(authHeaders).forEach(([key, value]) => {
       metadata.add(key.toLowerCase(), value);
     });
-    
+
+    logger.debug('Final gRPC metadata keys:', Object.keys(metadata.getMap()));
+
     // Add client identification
     metadata.add('x-client-type', 'mcp-server');
     metadata.add('x-client-id', 'jauauth-mcp');
-    
-    logger.debug('Final gRPC metadata keys:', metadata.getMap());
     
     return metadata;
   }
@@ -273,7 +274,7 @@ export class MemoryServiceClient {
 
   private protoToMemory(proto: any): Memory {
     const metadata = proto.metadata || {};
-    
+
     // Parse indicators if it's a string
     if (metadata.indicators && typeof metadata.indicators === 'string') {
       try {
@@ -282,14 +283,14 @@ export class MemoryServiceClient {
         // Leave as string if parsing fails
       }
     }
-    
+
     return {
       id: proto.id,
       userId: proto.user_id,
       content: proto.content,
       context: proto.context,
       importance: proto.importance,
-      memoryType: metadata.memory_type || 'unknown',
+      memoryType: proto.memory_type || 'unknown',  // Now read directly from proto
       tags: proto.tags || [],
       createdAt: this.timestampToDate(proto.created_at),
       updatedAt: this.timestampToDate(proto.updated_at),

@@ -1,0 +1,281 @@
+syntax = "proto3";
+
+package jaumemory.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// ToolService — vendor-agnostic tool registry and execution.
+service ToolService {
+  // Register a new tool definition
+  rpc CreateTool(CreateToolRequest) returns (Tool);
+
+  // List tools for the authenticated user (+ public tools)
+  rpc ListTools(ListToolsRequest) returns (ToolList);
+
+  // Get a single tool by ID or slug
+  rpc GetTool(GetToolRequest) returns (Tool);
+
+  // Update tool definition
+  rpc UpdateTool(UpdateToolRequest) returns (Tool);
+
+  // Delete a tool (soft delete)
+  rpc DeleteTool(DeleteToolRequest) returns (google.protobuf.Empty);
+
+  // Execute a tool (HTTP call with auto-auth injection)
+  rpc CallTool(CallToolRequest) returns (CallToolResponse);
+
+  // Render tool as a SKILL.md-format document (redacted — no secrets)
+  rpc RenderTool(RenderToolRequest) returns (RenderedDocument);
+
+  // Check tool health endpoint
+  rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
+
+  // Link a credential to a tool
+  rpc LinkCredential(LinkCredentialRequest) returns (Tool);
+
+  // Unlink credential from a tool
+  rpc UnlinkCredential(UnlinkCredentialRequest) returns (Tool);
+}
+
+// ─────────────────────────────────────────────
+// Core tool message
+// ─────────────────────────────────────────────
+
+message Tool {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  optional string description = 4;
+  string version = 5;
+
+  // Type and category
+  string tool_type = 6;               // nomcp, rest, graphql, grpc, webhook, script, cli, mcp, template, prompt
+  optional string category_id = 7;
+  optional string category_name = 8;  // denormalized for display
+
+  // Endpoint configuration
+  optional string base_url = 9;
+  string endpoints_json = 10;         // JSON array of endpoint definitions
+
+  // Credential linkage (shows linked, NOT the secret)
+  optional string credential_id = 11;
+  bool has_credential = 12;
+
+  // Hosting
+  optional string hosting_provider = 13;
+  string hosting_metadata_json = 14;
+
+  // Health monitoring
+  optional string health_check_url = 15;
+  string health_status = 16;
+  optional google.protobuf.Timestamp health_checked_at = 17;
+  optional int32 avg_response_ms = 18;
+
+  // Rate limiting and cost
+  optional string rate_limit_json = 19;
+  optional string cost_per_call_json = 20;
+
+  // Visibility and usage
+  bool is_public = 21;
+  bool is_active = 22;
+  int64 usage_count = 23;
+  optional google.protobuf.Timestamp last_used_at = 24;
+
+  // Schema
+  optional string input_schema_json = 25;
+  optional string output_schema_json = 26;
+
+  // Tags and metadata
+  repeated string tags = 27;
+  string metadata_json = 28;
+
+  // Timestamps
+  google.protobuf.Timestamp created_at = 29;
+  google.protobuf.Timestamp updated_at = 30;
+}
+
+// ─────────────────────────────────────────────
+// Request messages
+// user_id always from interceptor, never from request.
+// ─────────────────────────────────────────────
+
+message CreateToolRequest {
+  string name = 1;
+  optional string description = 2;
+  string tool_type = 3;
+  optional string category_id = 4;
+
+  // Endpoint configuration
+  optional string base_url = 5;
+  optional string endpoints_json = 6;
+
+  // Credential linkage
+  optional string credential_id = 7;
+
+  // Hosting
+  optional string hosting_provider = 8;
+  optional string hosting_metadata_json = 9;
+
+  // Health
+  optional string health_check_url = 10;
+
+  // Rate limiting and cost
+  optional string rate_limit_json = 11;
+  optional string cost_per_call_json = 12;
+
+  // Visibility
+  optional bool is_public = 13;
+
+  // Schema
+  optional string input_schema_json = 14;
+  optional string output_schema_json = 15;
+
+  // Tags and metadata
+  repeated string tags = 16;
+  optional string metadata_json = 17;
+}
+
+message ListToolsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  optional string tool_type = 3;
+  optional string category_id = 4;
+  optional bool active_only = 5;
+  optional bool include_public = 6;
+  optional string search = 7;          // full-text search on name/description
+}
+
+message GetToolRequest {
+  // Either id or slug — service resolves
+  string identifier = 1;
+}
+
+message UpdateToolRequest {
+  string tool_id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string tool_type = 4;
+  optional string category_id = 5;
+
+  optional string base_url = 6;
+  optional string endpoints_json = 7;
+
+  optional string hosting_provider = 8;
+  optional string hosting_metadata_json = 9;
+
+  optional string health_check_url = 10;
+
+  optional string rate_limit_json = 11;
+  optional string cost_per_call_json = 12;
+
+  optional bool is_public = 13;
+  optional bool is_active = 14;
+
+  optional string input_schema_json = 15;
+  optional string output_schema_json = 16;
+
+  repeated string tags = 17;
+  optional string metadata_json = 18;
+}
+
+message DeleteToolRequest {
+  string tool_id = 1;
+}
+
+message CallToolRequest {
+  // Identify tool by slug (must be owned by caller)
+  string slug = 1;
+
+  // Which endpoint to call (index into tool's endpoints array, default 0)
+  optional int32 endpoint_index = 2;
+
+  // HTTP method override (uses endpoint default if omitted)
+  optional string method = 3;
+
+  // Optional path suffix appended to base_url + endpoint path
+  optional string path_suffix = 4;
+
+  // Request body (JSON string)
+  optional string request_body = 5;
+
+  // Query parameters
+  map<string, string> query_params = 6;
+
+  // Extra headers for the outbound request. Auth is injected automatically
+  // from the linked credential — callers MUST NOT set auth headers here.
+  //
+  // SERVICE-ENFORCED DENYLIST (rejected at the gRPC layer before any HTTP call):
+  //   authorization, x-api-key, cookie, set-cookie, host, proxy-authorization,
+  //   x-forwarded-for, x-forwarded-host, x-real-ip, transfer-encoding, te,
+  //   and any header matching the tool's configured auth_header.
+  //
+  // Keys are case-insensitive; denied keys return INVALID_ARGUMENT.
+  map<string, string> extra_headers = 7;
+}
+
+message CallToolResponse {
+  int32 http_status = 1;
+  string response_body = 2;
+  map<string, string> response_headers = 3;
+  int64 response_time_ms = 4;
+  bool success = 5;
+  optional string error = 6;
+  // True if a credential was injected during this call.
+  // Consumers SHOULD treat responses with used_credential=true as potentially
+  // containing sensitive data and apply appropriate redaction.
+  bool used_credential = 7;
+}
+
+message RenderToolRequest {
+  string tool_id = 1;
+}
+
+message RenderedDocument {
+  string markdown = 1;
+  string title = 2;
+}
+
+message CheckHealthRequest {
+  string tool_id = 1;
+}
+
+message CheckHealthResponse {
+  string health_status = 1;   // healthy, degraded, down, unknown
+  optional int32 response_time_ms = 2;
+  optional int32 http_status = 3;
+  google.protobuf.Timestamp checked_at = 4;
+}
+
+message LinkCredentialRequest {
+  string tool_id = 1;
+  string credential_id = 2;
+}
+
+message UnlinkCredentialRequest {
+  string tool_id = 1;
+}
+
+// ─────────────────────────────────────────────
+// List response
+// ─────────────────────────────────────────────
+
+message ToolList {
+  repeated Tool tools = 1;
+  int32 total = 2;
+}
+
+// ─────────────────────────────────────────────
+// Tool version (immutable history)
+// ─────────────────────────────────────────────
+
+message ToolVersion {
+  string id = 1;
+  string tool_id = 2;
+  string version = 3;
+  optional string changelog = 4;
+  optional string input_schema_json = 5;
+  optional string output_schema_json = 6;
+  optional string endpoints_json = 7;
+  google.protobuf.Timestamp created_at = 8;
+}

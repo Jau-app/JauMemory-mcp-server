@@ -143,49 +143,32 @@ export class AgentServiceClient {
     const metadata = new grpc.Metadata();
     const authHeaders = await this.authManager.getAuthHeaders();
     
-    logger.debug('Creating gRPC metadata with auth headers:', authHeaders);
-    
-    // Log the actual header values
-    logger.info('AUTH HEADERS DEBUG:', {
-      hasAuthorization: !!authHeaders.authorization,
-      hasXUserId: !!authHeaders['x-user-id'],
-      hasXSyncId: !!authHeaders['x-sync-id'],
-      xUserIdValue: authHeaders['x-user-id'],
-      authHeaderKeys: Object.keys(authHeaders)
-    });
-    
+    logger.debug('Creating gRPC metadata', { keys: Object.keys(authHeaders) });
+
     // Add ALL auth headers (including x-sync-id)
     Object.entries(authHeaders).forEach(([key, value]) => {
       metadata.add(key.toLowerCase(), value);
     });
-    
+
     // Add client identification
     metadata.add('x-client-type', 'mcp-server');
     metadata.add('x-client-id', 'jaumemory-agent-mcp');
-    
-    logger.debug('Final gRPC metadata keys:', metadata.getMap());
-    
+
+    logger.debug('Final gRPC metadata keys:', Object.keys(metadata.getMap()));
+
     // Verify x-user-id is actually in metadata
     const xUserIdInMetadata = metadata.get('x-user-id');
     logger.info('METADATA x-user-id CHECK:', {
       hasXUserId: xUserIdInMetadata.length > 0,
       xUserIdValue: xUserIdInMetadata.length > 0 ? xUserIdInMetadata[0] : 'NOT FOUND'
     });
-    
+
     return metadata;
   }
 
   async createAgent(request: CreateAgentRequest): Promise<Agent> {
-    logger.info('=== CALLING createAgent ===');
     const metadata = await this.getMetadata();
-    
-    // Debug logging
-    logger.debug('CreateAgent metadata details:', {
-      authorization: metadata.get('authorization'),
-      'x-user-id': metadata.get('x-user-id'),
-      'x-sync-id': metadata.get('x-sync-id')
-    });
-    
+
     // Add a reasonable deadline (30 seconds from now)
     const deadline = new Date();
     deadline.setSeconds(deadline.getSeconds() + 30);
@@ -313,27 +296,9 @@ export class AgentServiceClient {
   }
 
   async linkMemoryToAgent(agentId: string, memoryId: string, category: string, projectContext?: string): Promise<void> {
-    logger.info('=== CALLING linkMemoryToAgent ===');
     return new Promise(async (resolve, reject) => {
       const metadata = await this.getMetadata();
-      
-      // Debug: Log the metadata being sent
-      logger.debug('LinkMemoryToAgent metadata:', {
-        metadataMap: metadata.getMap(),
-        agentId,
-        memoryId,
-        category,
-        projectContext
-      });
-      
-      // More detailed logging
-      logger.debug('LinkMemoryToAgent detailed headers:', {
-        authorization: metadata.get('authorization'),
-        'x-user-id': metadata.get('x-user-id'),
-        'x-sync-id': metadata.get('x-sync-id'),
-        'x-user-id-array': metadata.get('x-user-id') // Check if it's an array
-      });
-      
+
       this.client.linkMemoryToAgent({
         agent_id: agentId,
         memory_id: memoryId,

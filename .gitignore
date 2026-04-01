@@ -47,3 +47,4 @@ auth-credentials.json
 # Development/backup files
 .dev/
 *.bak
+*.map

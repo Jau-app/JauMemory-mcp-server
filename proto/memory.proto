@@ -45,6 +45,7 @@ message Memory {
   int32 access_count = 9;
   optional string embedding_id = 10;
   map<string, string> metadata = 11;
+  string memory_type = 12;  // Memory classification: error, solution, insight, question, context, task
 }
 
 // Create memory request
@@ -105,6 +106,7 @@ message UpdateMemoryRequest {
 message DeleteMemoryRequest {
   string id = 1;
   string user_id = 2;
+  optional string hard_delete_at = 3; // RFC3339 timestamp; defaults to 30 days if omitted
 }
 
 // Get memory request
