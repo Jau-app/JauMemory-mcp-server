@@ -8,6 +8,7 @@ import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
+import { redactSecrets } from '../../utils/redaction.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Load proto file
 const PROTO_PATH = path.join(__dirname, '../../../proto/pattern.proto');
@@ -36,7 +37,7 @@ export class PatternServiceClient {
     async createMetadata() {
         const metadata = new grpc.Metadata();
         const authHeaders = await this.authManager.getAuthHeaders();
-        logger.debug('Creating gRPC metadata with auth headers:', authHeaders);
+        logger.debug('Creating gRPC metadata with auth headers:', redactSecrets(authHeaders));
         // Add auth headers
         Object.entries(authHeaders).forEach(([key, value]) => {
             metadata.add(key.toLowerCase(), value);
@@ -44,7 +45,7 @@ export class PatternServiceClient {
         // Add client identification
         metadata.add('x-client-type', 'mcp-server');
         metadata.add('x-client-id', 'jauauth-mcp');
-        logger.debug('Final gRPC metadata keys:', metadata.getMap());
+        logger.debug('Final gRPC metadata keys:', Object.keys(metadata.getMap()));
         return metadata;
     }
     async analyzePatterns(request) {

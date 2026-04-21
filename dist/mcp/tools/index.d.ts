@@ -1,7 +1,10 @@
 /**
  * MCP Tools Router
  *
- * Exports all available tools for the MCP server.
+ * Supports two modes via MCP_TOOL_LOADING env var:
+ *   "flat"    (default) — all 43 tools in tools/list
+ *   "grouped" — 12 tools: 8 category routers + 4 direct tools
+ *               (mcp_authenticate hidden, schema provided by mcp_login response)
  */
 import type { BackendClients } from '../../types/clients.js';
 export interface Tool {
@@ -14,5 +17,17 @@ export interface Tool {
     };
     handler: (args: any) => Promise<any>;
 }
-export declare function setupTools(clients: BackendClients): Record<string, Tool>;
+/**
+ * Setup tools based on MCP_TOOL_LOADING mode.
+ *
+ * Returns { listed, all }:
+ *   - listed: tools to show in tools/list
+ *   - all: tools that can be called (includes hidden ones in grouped mode)
+ *
+ * In flat mode, listed === all.
+ */
+export declare function setupTools(clients: BackendClients): {
+    listed: Record<string, Tool>;
+    all: Record<string, Tool>;
+};
 //# sourceMappingURL=index.d.ts.map

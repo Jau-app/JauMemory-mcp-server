@@ -167,11 +167,7 @@ export class AuthManager {
         logger.info('Security verification successful!');
         // Step 3: Authenticate with request_id and auth_token
         await this.authenticateWithToken(request_id, userProvidedToken);
-        // Save credentials for future use
-        logger.info('Authentication successful!');
-        logger.info(`Add these to your .env file for future sessions:`);
-        logger.info(`JAUMEMORY_REQUEST_ID=${request_id}`);
-        logger.info(`JAUMEMORY_AUTH_TOKEN=${userProvidedToken}`);
+        logger.info('Authentication successful. Credentials cached locally.');
     }
     async authenticateWithToken(requestId, authToken) {
         // Generate sync_id: SHA-256(request_id + auth_token)

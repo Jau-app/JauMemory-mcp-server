@@ -43,8 +43,13 @@ import { createPatternClient } from './client/pattern.js';
 import { createConsolidationClient } from './client/consolidation.js';
 import { createAgentClient } from './client/agent.js';
 import { createCollectionsClient } from './client/collections.js';
+import { createCredentialsClient } from './client/credentials.js';
+import { createToolsClient } from './client/tools.js';
+import { createSkillsClient } from './client/skills.js';
+import { createSchedulesClient } from './client/schedules.js';
 // Logger setup
 import { logger } from './utils/logger.js';
+import { redactSecrets } from './utils/redaction.js';
 async function main() {
     logger.info('Starting JauAuth MCP Server...');
     try {
@@ -59,6 +64,10 @@ async function main() {
             consolidation: await createConsolidationClient(authManager),
             agent: await createAgentClient(authManager),
             collections: await createCollectionsClient(authManager),
+            credentials: await createCredentialsClient(authManager),
+            tools: await createToolsClient(authManager),
+            skills: await createSkillsClient(authManager),
+            schedules: await createSchedulesClient(authManager),
             auth: {
                 getCurrentUserId: async () => {
                     const userId = await authManager.getUserId();
@@ -83,23 +92,25 @@ async function main() {
                 prompts: {}
             }
         });
-        // Setup tools
-        const tools = setupTools(clients);
+        // Setup tools (listed = visible in tools/list, all = callable)
+        const { listed: listedTools, all: allTools } = setupTools(clients);
+        const mode = process.env.MCP_TOOL_LOADING || 'flat';
+        logger.info(`Tool loading mode: ${mode} (${Object.keys(listedTools).length} listed, ${Object.keys(allTools).length} callable)`);
         // Handle tool listing
         server.setRequestHandler(ListToolsRequestSchema, async () => {
             return {
-                tools: Object.entries(tools).map(([_, tool]) => ({
+                tools: Object.entries(listedTools).map(([_, tool]) => ({
                     name: tool.name,
                     description: tool.description,
                     inputSchema: tool.inputSchema
                 }))
             };
         });
-        // Handle tool calls
+        // Handle tool calls (use allTools so hidden tools like mcp_authenticate work)
         server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
-            logger.debug(`Tool called: ${name}`, { args });
-            const tool = tools[name];
+            logger.debug(`Tool called: ${name}`, { args: redactSecrets(args) });
+            const tool = allTools[name];
             if (!tool) {
                 throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
             }

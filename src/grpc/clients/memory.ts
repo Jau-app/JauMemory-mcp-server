@@ -55,7 +55,8 @@ export interface Memory {
 
 export interface RecallMemoriesRequest {
   userId: string;
-  query: string;
+  /** Optional — omit for filters-only search. Proto field is optional string. */
+  query?: string;
   mode?: 'keyword' | 'semantic' | 'hybrid';
   limit?: number;
   minImportance?: number;
@@ -145,10 +146,15 @@ export class MemoryServiceClient {
     return new Promise((resolve, reject) => {
       const protoRequest: any = {
         user_id: request.userId,
-        query: request.query,
         limit: request.limit || 20,
         min_importance: request.minImportance
       };
+
+      // Only include query when provided — proto field is optional; omitting
+      // it lets the backend run a filters-only search.
+      if (request.query !== undefined && request.query !== '') {
+        protoRequest.query = request.query;
+      }
 
       // Map mode to proto enum
       if (request.mode) {
