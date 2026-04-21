@@ -71,7 +71,7 @@ message UpdateAgentRequest {
     repeated string specializations = 4;
     repeated string update_prompts = 5;
     string status = 6;
-    optional float learning_rate = 7;
+    optional double learning_rate = 7;
 }
 
 message UpdateAgentNameRequest {

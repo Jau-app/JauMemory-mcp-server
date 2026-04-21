@@ -1,0 +1,230 @@
+syntax = "proto3";
+
+package jaumemory.admin.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Admin service for role and permission management
+service AdminService {
+  // Role management
+  rpc GrantRole(GrantRoleRequest) returns (google.protobuf.Empty);
+  rpc RevokeRole(RevokeRoleRequest) returns (google.protobuf.Empty);
+  rpc GetUserRoles(GetUserRolesRequest) returns (UserRolesResponse);
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse);
+  rpc CreateRole(CreateRoleRequest) returns (RoleInfo);
+  rpc UpdateRole(UpdateRoleRequest) returns (RoleInfo);
+  rpc DeleteRole(DeleteRoleRequest) returns (google.protobuf.Empty);
+  
+  // User management
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc SuspendUser(SuspendUserRequest) returns (google.protobuf.Empty);
+  rpc ResetUserPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  
+  // MFA management for users (admin uses normal auth endpoints)
+  rpc SetupMfa(SetupMfaRequest) returns (SetupMfaResponse);
+  rpc VerifyMfa(VerifyMfaRequest) returns (google.protobuf.Empty);
+  rpc DisableMfa(DisableMfaRequest) returns (google.protobuf.Empty);
+  
+  // IP allowlist management
+  rpc AddIpAllowlist(AddIpAllowlistRequest) returns (IpAllowlistEntry);
+  rpc RemoveIpAllowlist(RemoveIpAllowlistRequest) returns (google.protobuf.Empty);
+  rpc ListIpAllowlist(ListIpAllowlistRequest) returns (ListIpAllowlistResponse);
+  
+  // Admin dashboard
+  rpc GetAdminDashboard(GetAdminDashboardRequest) returns (AdminDashboardStats);
+  rpc GetSystemHealth(GetSystemHealthRequest) returns (SystemHealth);
+  
+  // Cache management
+  rpc InvalidateUserCache(InvalidateUserCacheRequest) returns (google.protobuf.Empty);
+  rpc InvalidateAllCaches(InvalidateAllCachesRequest) returns (google.protobuf.Empty);
+}
+
+// Role management messages
+message GrantRoleRequest {
+  string user_id = 1;
+  string role = 2;
+}
+
+message RevokeRoleRequest {
+  string user_id = 1;
+  string role = 2;
+}
+
+message GetUserRolesRequest {
+  string user_id = 1;
+}
+
+message UserRolesResponse {
+  string user_id = 1;
+  string email = 2;
+  repeated string roles = 3;
+  repeated string permissions = 4;
+}
+
+message ListRolesRequest {}
+
+message ListRolesResponse {
+  repeated RoleInfo roles = 1;
+}
+
+message RoleInfo {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permissions = 4;
+  int64 user_count = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateRoleRequest {
+  string name = 1;
+  string description = 2;
+  repeated string permissions = 3;
+}
+
+message UpdateRoleRequest {
+  string role_name = 1;
+  string description = 2;
+  repeated string permissions = 3;
+}
+
+message DeleteRoleRequest {
+  string role_name = 1;
+}
+
+// User management messages
+message ListUsersRequest {
+  string role = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListUsersResponse {
+  repeated UserRolesResponse users = 1;
+  int64 total_count = 2;
+}
+
+message SuspendUserRequest {
+  string user_id = 1;
+  string reason = 2;
+  int64 duration_hours = 3; // 0 = permanent
+}
+
+message ResetPasswordRequest {
+  string user_id = 1;
+  string temporary_password = 2; // empty = generate random
+  bool force_change = 3;
+}
+
+message ResetPasswordResponse {
+  string temporary_password = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// MFA messages for managing user MFA (admins use normal /auth endpoints)
+message SetupMfaRequest {
+  string password = 1; // confirm password
+}
+
+message SetupMfaResponse {
+  string secret = 1;
+  string qr_code = 2;
+  repeated string recovery_codes = 3;
+}
+
+message VerifyMfaRequest {
+  string totp_code = 1;
+}
+
+message DisableMfaRequest {
+  string password = 1; // confirm password
+  string totp_code = 2; // current code
+}
+
+// IP allowlist messages
+message AddIpAllowlistRequest {
+  string user_id = 1; // empty = global
+  string ip_range = 2; // CIDR notation
+  string description = 3;
+  int64 expires_in_hours = 4; // 0 = no expiry
+}
+
+message RemoveIpAllowlistRequest {
+  string allowlist_id = 1;
+}
+
+message ListIpAllowlistRequest {
+  string user_id = 1; // empty = all
+}
+
+message ListIpAllowlistResponse {
+  repeated IpAllowlistEntry entries = 1;
+}
+
+message IpAllowlistEntry {
+  string id = 1;
+  string user_id = 2;
+  string ip_range = 3;
+  string description = 4;
+  string added_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+// Dashboard messages
+message GetAdminDashboardRequest {}
+
+message AdminDashboardStats {
+  int64 total_users = 1;
+  int64 active_sessions = 2;
+  int64 admin_sessions = 3;
+  int64 recent_security_events = 4;
+  int64 pending_approvals = 5;
+  SystemHealth system_health = 6;
+}
+
+message GetSystemHealthRequest {}
+
+message SystemHealth {
+  enum HealthStatus {
+    HEALTHY = 0;
+    DEGRADED = 1;
+    CRITICAL = 2;
+  }
+  
+  HealthStatus status = 1;
+  int32 database_connections = 2;
+  double cache_hit_rate = 3;
+  double error_rate_per_minute = 4;
+  double average_response_time_ms = 5;
+  google.protobuf.Timestamp checked_at = 6;
+}
+
+// Cache management messages
+message InvalidateUserCacheRequest {
+  string user_id = 1;
+}
+
+message InvalidateAllCachesRequest {
+  string cache_type = 1; // "permissions", "all"
+}
+
+// Risk level enum for audit logging
+enum RiskLevel {
+  LOW = 0;
+  MEDIUM = 1;
+  HIGH = 2;
+  CRITICAL = 3;
+}
+
+// Admin action types for rate limiting
+enum AdminActionType {
+  ROLE_GRANT = 0;
+  ROLE_REVOKE = 1;
+  USER_SUSPEND = 2;
+  PASSWORD_RESET = 3;
+  BACKUP_CREATE = 4;
+  CONFIG_MODIFY = 5;
+  SESSION_REVOKE_ALL = 6;
+}
