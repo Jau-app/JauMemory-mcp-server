@@ -28,7 +28,8 @@ export interface Memory {
 }
 export interface RecallMemoriesRequest {
     userId: string;
-    query: string;
+    /** Optional — omit for filters-only search. Proto field is optional string. */
+    query?: string;
     mode?: 'keyword' | 'semantic' | 'hybrid';
     limit?: number;
     minImportance?: number;

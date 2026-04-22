@@ -29,6 +29,32 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any;
 const MemoryService = protoDescriptor.jaumemory.v1.MemoryService;
 
+/**
+ * Parse a user-supplied date for the `timeRange` filter.
+ *
+ * Bare date strings (`"2026-04-21"`) are interpreted in the process's
+ * local timezone, not UTC. Plain `new Date("2026-04-21")` treats the
+ * string as UTC midnight, which makes "today" off-by-one for any
+ * timezone west of UTC — a memory stored at 3pm local on Monday would
+ * be invisible to a caller asking for `{start: "Monday"}`.
+ *
+ * For `start`, local midnight of the given day is used.
+ * For `end`, local end-of-day (23:59:59.999) is used so the named day
+ * is inclusive, matching most users' intuition.
+ *
+ * Fully-qualified ISO strings with timezone (e.g. `"2026-04-21T00:00:00Z"`)
+ * or `Date` instances are passed through unchanged.
+ */
+function parseUserDate(input: Date | string, edge: 'start' | 'end'): Date {
+  if (input instanceof Date) return input;
+  // Bare YYYY-MM-DD — no time, no timezone.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    const suffix = edge === 'start' ? 'T00:00:00' : 'T23:59:59.999';
+    return new Date(`${input}${suffix}`); // local tz per JS spec
+  }
+  return new Date(input);
+}
+
 export interface CreateMemoryRequest {
   userId: string;
   content: string;
@@ -177,26 +203,18 @@ export class MemoryServiceClient {
       // Handle time range - support both formats
       if (request.timeRange || request.startDate || request.endDate) {
         protoRequest.time_range = {};
-        
+
         // Use timeRange if provided, otherwise fall back to startDate/endDate
         const start = request.timeRange?.start || request.startDate;
         const end = request.timeRange?.end || request.endDate;
-        
+
         if (start) {
-          const startDate = typeof start === 'string' ? new Date(start) : start;
-          const startTimestamp = Math.floor(startDate.getTime() / 1000);
-          protoRequest.time_range.start = {
-            seconds: startTimestamp,
-            nanos: 0
-          };
+          const startTimestamp = Math.floor(parseUserDate(start, 'start').getTime() / 1000);
+          protoRequest.time_range.start = { seconds: startTimestamp, nanos: 0 };
         }
         if (end) {
-          const endDate = typeof end === 'string' ? new Date(end) : end;
-          const endTimestamp = Math.floor(endDate.getTime() / 1000);
-          protoRequest.time_range.end = {
-            seconds: endTimestamp,
-            nanos: 0
-          };
+          const endTimestamp = Math.floor(parseUserDate(end, 'end').getTime() / 1000);
+          protoRequest.time_range.end = { seconds: endTimestamp, nanos: 0 };
         }
       }
 
