@@ -1,17 +1,17 @@
 /**
- * Memory client factory for production
+ * Memory client factory for production.
+ *
+ * Plan A2: TLS defaults ON via shared `tls-config.ts`. The previous
+ * inline `JAUMEMORY_GRPC_USE_TLS === 'true'` defaulted to plaintext —
+ * JWTs and memory content travelled cleartext to mem.jau.app:50051
+ * unless the operator explicitly opted in. The shared helper inverts
+ * this and refuses to disable TLS under NODE_ENV=production.
  */
 
 import { MemoryServiceClient } from '../grpc/clients/memory.js';
 import { AuthManager } from '../auth/AuthManager.js';
+import { grpcAddress, grpcUseTls } from './tls-config.js';
 
 export async function createMemoryClient(authManager: AuthManager): Promise<MemoryServiceClient> {
-  // Default to production URL if not specified
-  const address = process.env.JAUMEMORY_GRPC_URL || 'mem.jau.app:50051';
-
-  // For now, production gRPC doesn't use TLS (traffic is already encrypted via VPN/internal network)
-  // Only use TLS if explicitly enabled via environment variable
-  const useTls = process.env.JAUMEMORY_GRPC_USE_TLS === 'true';
-
-  return new MemoryServiceClient(address, authManager, useTls);
+  return new MemoryServiceClient(grpcAddress, authManager, grpcUseTls);
 }

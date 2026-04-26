@@ -45,25 +45,23 @@ export function authenticateTool(clients: BackendClients): Tool {
         // Get the user ID from auth manager
         const userId = await authManager.getUserId();
 
+        // Plan A3: do NOT echo `auth_token` (or `request_id`) back to the
+        // LLM. Earlier versions printed env-var setup lines that placed
+        // the live bearer-equivalent credential into the conversation
+        // transcript, where it could be exfiltrated by any downstream
+        // consumer of the LLM's output. AuthManager.completeAuthentication
+        // (called above) has already auto-persisted (request_id, auth_token)
+        // to the on-disk credential cache, so subsequent runs of this
+        // server resume without re-auth without ever needing to read the
+        // token from a transcript.
         return [
           {
             type: 'text',
             text: `✅ Authentication successful!
 
-🎉 You are now logged in to JauMemory!
+You are now logged in to JauMemory as user ${userId}. Credentials have been stored locally and will be reused on subsequent server runs — no environment variables required.
 
-User ID: ${userId}
-
-✅ You can now use all JauMemory tools:
-   - remember: Store new memories
-   - recall: Search your memories
-   - forget: Delete memories
-   - analyze: Analyze memory patterns
-   - And many more!
-
-💾 To save credentials for future sessions, add to your environment:
-   JAUMEMORY_REQUEST_ID=${request_id}
-   JAUMEMORY_AUTH_TOKEN=${auth_token}`
+You can now use all JauMemory tools (remember, recall, forget, analyze, etc.).`
           }
         ];
       } catch (error: any) {

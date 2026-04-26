@@ -1,15 +1,12 @@
 /**
- * Vector client factory for production
+ * Vector client factory for production.
+ * Plan A2: TLS default-on via shared tls-config.
  */
 
 import { VectorServiceClient } from '../grpc/clients/vector.js';
 import { AuthManager } from '../auth/AuthManager.js';
+import { grpcAddress, grpcUseTls } from './tls-config.js';
 
 export async function createVectorClient(authManager: AuthManager): Promise<VectorServiceClient> {
-  // Default to production URL if not specified
-  const address = process.env.JAUMEMORY_GRPC_URL || 'mem.jau.app:50051';
-  
-  const useTls = process.env.JAUMEMORY_GRPC_USE_TLS === 'true';
-  
-  return new VectorServiceClient(address, authManager, useTls);
+  return new VectorServiceClient(grpcAddress, authManager, grpcUseTls);
 }

@@ -1,15 +1,12 @@
 /**
- * Consolidation client factory for production
+ * Consolidation client factory for production.
+ * Plan A2: TLS default-on via shared tls-config.
  */
 
 import { ConsolidationServiceClient } from '../grpc/clients/consolidation.js';
 import { AuthManager } from '../auth/AuthManager.js';
+import { grpcAddress, grpcUseTls } from './tls-config.js';
 
 export async function createConsolidationClient(authManager: AuthManager): Promise<ConsolidationServiceClient> {
-  // Default to production URL if not specified
-  const address = process.env.JAUMEMORY_GRPC_URL || 'mem.jau.app:50051';
-  
-  const useTls = process.env.JAUMEMORY_GRPC_USE_TLS === 'true';
-  
-  return new ConsolidationServiceClient(address, authManager, useTls);
+  return new ConsolidationServiceClient(grpcAddress, authManager, grpcUseTls);
 }
