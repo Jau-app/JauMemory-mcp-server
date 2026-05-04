@@ -67,25 +67,31 @@ You can now use all JauMemory tools (remember, recall, forget, analyze, etc.).`
       } catch (error: any) {
         logger.error('MCP authentication failed:', error);
 
-        // Extract error message without circular references
+        // Extract error message without leaking the original request body.
+        //
+        // Plan A3 review finding H2: the previous fallback used
+        // `JSON.stringify(error, null, 2)` which serialized the entire
+        // error object including `error.config.data` for axios errors.
+        // For authentication failures the request body contains the live
+        // `auth_token` and `request_id` — exactly what A3 set out to keep
+        // out of the LLM transcript. Whitelisting fields only.
         let errorMsg = 'Unknown authentication error';
 
-        if (error.response?.data?.detail) {
+        if (typeof error?.response?.data?.detail === 'string') {
           errorMsg = error.response.data.detail;
-        } else if (error.response?.data?.error) {
+        } else if (typeof error?.response?.data?.error === 'string') {
           errorMsg = error.response.data.error;
-        } else if (error.message) {
+        } else if (typeof error?.response?.status === 'number') {
+          errorMsg = `Server returned HTTP ${error.response.status}`;
+        } else if (typeof error?.message === 'string') {
           errorMsg = error.message;
         } else if (typeof error === 'string') {
           errorMsg = error;
-        } else {
-          // Avoid [object Object] - use safe stringification
-          try {
-            errorMsg = JSON.stringify(error, null, 2);
-          } catch {
-            errorMsg = 'Authentication failed - please check your auth token and try again';
-          }
         }
+        // Deliberately NO fallback that serializes `error` itself — too
+        // many ways for an axios/fetch/etc. error wrapper to embed the
+        // request body. The generic "please retry" message below is the
+        // safe last resort.
 
         // Return a simple error message without circular references
         const cleanError = new Error(`Authentication failed: ${errorMsg}`);
