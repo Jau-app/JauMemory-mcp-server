@@ -5,11 +5,94 @@
  */
 
 import axios from 'axios';
+import { exec as execCb } from 'child_process';
 import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { promisify } from 'util';
 import { logger } from '../utils/logger.js';
+
+const exec = promisify(execCb);
+
+/**
+ * Harden directory permissions cross-platform after creation.
+ *
+ * Review M1 + M4: the prior pattern was `fs.mkdir({mode: 0o700})` followed
+ * by a best-effort `fs.chmod(0o700)`. Two issues:
+ *   1. UNIX TOCTOU: between mkdir and chmod, the umask-masked mode might
+ *      briefly be looser than 0o700 (e.g. a 0o022 umask gives 0o755),
+ *      letting a local attacker peek inside.
+ *   2. Windows: chmod is a no-op; the dir inherits ACLs from %APPDATA%\Roaming
+ *      which by default grants full access to the user AND read access
+ *      to local administrators / SYSTEM. Other admins on the same box
+ *      can read the cache.
+ *
+ * Fix:
+ *   - UNIX: chmod immediately (closes the umask window — still has a
+ *     micro-TOCTOU but bounded by syscall pair latency).
+ *   - Windows: invoke `icacls` to remove inheritance and grant access
+ *     only to the current user. Best-effort: failures are logged at
+ *     warn level (icacls may be missing on heavily-stripped images).
+ */
+async function hardenDirectoryPerms(dir: string): Promise<void> {
+  if (process.platform === 'win32') {
+    try {
+      const username = process.env.USERNAME;
+      if (!username) {
+        logger.warn('hardenDirectoryPerms: USERNAME unset, skipping icacls', { dir });
+        return;
+      }
+      // /inheritance:r removes inherited ACEs;
+      // /grant:r grants the user full control with replace semantics.
+      // Quoting handles spaces in dir / username.
+      await exec(
+        `icacls "${dir}" /inheritance:r /grant:r "${username}:(OI)(CI)F"`,
+        { windowsHide: true }
+      );
+    } catch (err: any) {
+      logger.warn('hardenDirectoryPerms: icacls failed', { dir, error: err?.message });
+    }
+  } else {
+    try {
+      await fs.chmod(dir, 0o700);
+    } catch (err: any) {
+      logger.warn('hardenDirectoryPerms: chmod failed', { dir, error: err?.message });
+    }
+  }
+}
+
+/**
+ * Atomically write a sensitive file with strict perms.
+ *
+ * Review M1: `fs.writeFile(path, content, {mode})` creates the file with
+ * the given mode subject to umask, opening a window where the file is
+ * world-readable until our subsequent chmod closes it. Use the `wx` flag
+ * (O_CREAT | O_EXCL) after explicit unlink so the create is atomic and
+ * the immediate chmod cannot race with another process opening the
+ * still-loose file.
+ *
+ * On Windows, where chmod is meaningless, the directory's ACL (set via
+ * `hardenDirectoryPerms`) is the actual access control — `mode` is
+ * advisory and chmod is a no-op.
+ */
+async function secureWriteFile(filePath: string, content: string | Buffer): Promise<void> {
+  // Pre-unlink so 'wx' (O_CREAT | O_EXCL) succeeds even if the file
+  // already exists. Failures here are tolerated — most likely ENOENT.
+  try {
+    await fs.unlink(filePath);
+  } catch {
+    /* not present */
+  }
+  await fs.writeFile(filePath, content, { mode: 0o600, flag: 'wx' });
+  if (process.platform !== 'win32') {
+    try {
+      await fs.chmod(filePath, 0o600);
+    } catch {
+      /* best-effort */
+    }
+  }
+}
 
 /**
  * Resolve the per-user cache directory for credentials.
@@ -128,10 +211,8 @@ export class AuthManager {
 
     try {
       await fs.mkdir(newDir, { recursive: true, mode: 0o700 });
-      if (process.platform !== 'win32') {
-        // mkdir's `mode` is masked by umask; force-restrict.
-        try { await fs.chmod(newDir, 0o700); } catch { /* best-effort */ }
-      }
+      // Review M1 + M4: harden cross-platform.
+      await hardenDirectoryPerms(newDir);
 
       await fs.rename(legacyCache, newCache);
 
@@ -560,11 +641,10 @@ export class AuthManager {
     const saltFile = path.join(cacheDir, '.salt');
     let salt: Buffer | undefined;
 
-    // Ensure parent dir exists with restrictive perms.
+    // Ensure parent dir exists with restrictive perms (review M1 + M4:
+    // hardens against umask leak on UNIX and inherited-ACL leak on Windows).
     await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
-    if (process.platform !== 'win32') {
-      try { await fs.chmod(cacheDir, 0o700); } catch { /* best-effort */ }
-    }
+    await hardenDirectoryPerms(cacheDir);
 
     let cacheFileExists = false;
     try {
@@ -615,10 +695,7 @@ export class AuthManager {
 
     if (!salt) {
       salt = randomBytes(32);
-      await fs.writeFile(saltFile, salt.toString('hex'), { mode: 0o600 });
-      if (process.platform !== 'win32') {
-        try { await fs.chmod(saltFile, 0o600); } catch { /* best-effort */ }
-      }
+      await secureWriteFile(saltFile, salt.toString('hex'));
       logger.debug('Generated new encryption salt');
     }
 
@@ -750,19 +827,15 @@ export class AuthManager {
     try {
       const cacheDir = path.dirname(this.cacheFile);
       await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
-      if (process.platform !== 'win32') {
-        try { await fs.chmod(cacheDir, 0o700); } catch { /* best-effort */ }
-      }
+      // Review M1 + M4: harden directory perms cross-platform.
+      await hardenDirectoryPerms(cacheDir);
 
       const encryptionKey = await this.getOrCreateEncryptionKey();
       const credentialsJson = JSON.stringify(this.credentials);
       const encrypted = this.encryptCacheBlob(credentialsJson, encryptionKey);
-      await fs.writeFile(this.cacheFile, encrypted, { mode: 0o600 });
-
-      // Set file permissions to user-only (Unix systems)
-      if (process.platform !== 'win32') {
-        try { await fs.chmod(this.cacheFile, 0o600); } catch { /* best-effort */ }
-      }
+      // Review M1: atomic create-with-mode + immediate chmod (no umask
+      // window before perms are tightened).
+      await secureWriteFile(this.cacheFile, encrypted);
 
       logger.debug('Saved encrypted credentials to file');
     } catch (error) {
@@ -814,26 +887,74 @@ export class AuthManager {
   }
 
   async clearSession(): Promise<void> {
-    // Clear cached credentials on logout
+    // Review M3: propagate partial-clear failure. The previous version
+    // swallowed every error from keytar and the cache-file unlink, so
+    // a Windows file-lock or NTFS perms issue on `unlink` could leave
+    // the encrypted cache on disk while we reported success — the next
+    // server start would then resume the session via that file.
+    //
+    // Distinct error categories:
+    //   - keytar absent (module not installed) → debug log, not failure.
+    //   - keytar.deletePassword threw with module loaded → real failure.
+    //   - cache-file unlink ENOENT → not a failure (no cache to clear).
+    //   - cache-file unlink other error (EACCES, EBUSY, etc.) → real
+    //     failure; throw so logout.ts can surface it to the user.
     this.credentials = undefined;
 
-    // Try to delete from keytar first
+    let keytarError: unknown;
+    let keytarAvailable = true;
     try {
       const keytar = await import('keytar');
       const service = 'jaumemory-mcp';
       const account = 'default';
-      await keytar.deletePassword(service, account);
-      logger.debug('Cleared credentials from OS keychain');
-    } catch (error) {
-      // keytar not available
+      try {
+        await keytar.deletePassword(service, account);
+        logger.debug('Cleared credentials from OS keychain');
+      } catch (err) {
+        keytarError = err;
+        logger.warn('clearSession: keytar deletePassword failed', { error: err });
+      }
+    } catch {
+      // keytar module not installed; not a failure.
+      keytarAvailable = false;
     }
 
-    // Delete the cache file
+    let unlinkError: unknown;
     try {
       await fs.unlink(this.cacheFile);
       logger.debug('Cleared cached credentials file');
-    } catch (error) {
-      // File might not exist
+    } catch (err: any) {
+      // ENOENT = no file to clear; not a failure.
+      if (err?.code !== 'ENOENT') {
+        unlinkError = err;
+        logger.error('clearSession: cache-file unlink failed', {
+          path: this.cacheFile,
+          error: err,
+        });
+      }
+    }
+
+    // Also unlink the salt file (sibling). Failure here is not fatal —
+    // re-encryption will use a fresh salt next time, the old salt being
+    // useless without the matching cache.
+    try {
+      const saltFile = path.join(path.dirname(this.cacheFile), '.salt');
+      await fs.unlink(saltFile);
+    } catch {
+      /* salt missing or unreadable — non-fatal */
+    }
+
+    // Both keytar and unlink failures = full failure (the persisted
+    // cache still exists). Either alone is also a failure: a stuck
+    // keychain entry can resume the session on platforms where keytar
+    // load order beats file load order.
+    if (unlinkError !== undefined) {
+      const msg = unlinkError instanceof Error ? unlinkError.message : String(unlinkError);
+      throw new Error(`Failed to delete cached credentials file: ${msg}`);
+    }
+    if (keytarAvailable && keytarError !== undefined) {
+      const msg = keytarError instanceof Error ? keytarError.message : String(keytarError);
+      throw new Error(`Failed to clear OS keychain entry: ${msg}`);
     }
   }
 

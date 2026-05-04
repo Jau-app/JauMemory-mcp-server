@@ -4,6 +4,7 @@
  * Handles memory consolidation operations via gRPC
  */
 
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -54,9 +55,7 @@ export class ConsolidationServiceClient {
     this.authManager = authManager;
 
     // Create credentials
-    const credentials = useTls
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildCredentials(useTls);
 
     // Create client
     this.client = new ConsolidationService(address, credentials);

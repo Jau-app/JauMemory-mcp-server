@@ -66,12 +66,20 @@ export function logoutTool(clients: BackendClients): Tool {
       let serverError: string | undefined;
       if (authHeaders && apiUrl) {
         try {
+          // Review M2: 30s timeout (was 5s). For a "credential possibly
+          // stolen" logout flow, 5s is too aggressive — TLS handshake
+          // stalls, revocation-table contention during a deploy, or a
+          // momentarily congested link can all blow that budget. 30s is
+          // long enough for nearly any legitimate revocation while still
+          // bounding worst-case UX latency. Local clear has already
+          // happened before this call, so the user-visible cache is gone
+          // regardless of revocation outcome.
           await axios.post(
             `${apiUrl}/v1/auth/logout`,
             {},
             {
               headers: { ...authHeaders, 'Content-Type': 'application/json' },
-              timeout: 5000,
+              timeout: 30000,
             }
           );
           serverRevoked = true;

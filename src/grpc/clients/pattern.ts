@@ -4,6 +4,7 @@
  * Connects to the JauMemory cloud service for pattern analysis
  */
 
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -74,9 +75,7 @@ export class PatternServiceClient {
   
   constructor(address: string, authManager: AuthManager, useTls: boolean = true) {
     // Create credentials
-    const credentials = useTls 
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildCredentials(useTls);
     
     this.client = new PatternService(address, credentials);
     this.authManager = authManager;

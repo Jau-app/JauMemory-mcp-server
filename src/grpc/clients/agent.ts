@@ -4,6 +4,7 @@
  * Connects to the Rust backend agent service for multi-agent memory management
  */
 
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -129,9 +130,7 @@ export class AgentServiceClient {
   private authManager: AuthManager;
 
   constructor(address: string, authManager: AuthManager, useTls: boolean = true) {
-    const credentials = useTls 
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildCredentials(useTls);
     
     this.client = new AgentService(address, credentials);
     this.authManager = authManager;

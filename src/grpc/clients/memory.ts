@@ -4,6 +4,7 @@
  * Connects to the JauMemory cloud service with authentication and TLS
  */
 
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -114,9 +115,7 @@ export class MemoryServiceClient {
   
   constructor(address: string, authManager: AuthManager, useTls: boolean = true) {
     // Create credentials
-    const credentials = useTls 
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildCredentials(useTls);
     
     this.client = new MemoryService(address, credentials);
     this.authManager = authManager;

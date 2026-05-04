@@ -4,6 +4,7 @@
  * Connects to the Rust backend tool registry service for managing vendor-agnostic tools
  */
 
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -33,9 +34,7 @@ export class ToolsServiceClient {
   private authManager: AuthManager;
 
   constructor(address: string, authManager: AuthManager, useTls: boolean = true) {
-    const credentials = useTls
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
+    const credentials = buildCredentials(useTls);
 
     this.client = new ToolService(address, credentials);
     this.authManager = authManager;
