@@ -5,12 +5,32 @@
  */
 
 import axios from 'axios';
-import { createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import CryptoJS from 'crypto-js';
 import { logger } from '../utils/logger.js';
+
+/**
+ * Resolve the per-user cache directory for credentials.
+ * - Windows: %APPDATA%\jaumemory-mcp (with sane fallback if APPDATA unset)
+ * - Linux/macOS: ~/.config/jaumemory-mcp
+ */
+function resolveCacheDir(): string {
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA
+      || path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appData, 'jaumemory-mcp');
+  }
+  return path.join(os.homedir(), '.config', 'jaumemory-mcp');
+}
+
+/** Approximate process start time (ms since epoch). */
+const PROCESS_START_MS = Date.now() - (process.uptime() * 1000);
+
+// AES-256-GCM constants
+const GCM_NONCE_LEN = 12;
+const GCM_TAG_LEN = 16;
 
 interface AuthCredentials {
   requestId: string;
@@ -49,7 +69,8 @@ export class AuthManager {
     // Default to production API if not specified
     this.apiUrl = process.env.JAUMEMORY_API_URL || 'https://mem.jau.app';
 
-    this.cacheFile = path.join(process.cwd(), '.auth-cache', 'credentials.json');
+    // A11: cache lives in user home, not cwd. Per-user, persistent across cwd changes.
+    this.cacheFile = path.join(resolveCacheDir(), 'credentials.json');
 
     // Log configuration (without sensitive data)
     logger.debug('AuthManager initialized', {
@@ -59,11 +80,82 @@ export class AuthManager {
   }
 
   async initialize(): Promise<void> {
+    // A11: migrate legacy <cwd>/.auth-cache/credentials.json (+ .salt sibling)
+    // to the new user-home location if the new location does not yet exist.
+    await this.migrateLegacyCacheIfNeeded();
+
     // Try to load cached credentials
     await this.loadCachedCredentials();
 
     // Don't require authentication on startup
     // Authentication will happen when user calls login tool
+  }
+
+  /**
+   * A11 migration: if a legacy cache exists in `<cwd>/.auth-cache/` and the new
+   * user-home location does not, move both `credentials.json` and the `.salt`
+   * sibling. Best-effort — failures are logged and ignored (we'll fall through
+   * to first-run auth, same as if no cache existed).
+   */
+  private async migrateLegacyCacheIfNeeded(): Promise<void> {
+    const legacyDir = path.join(process.cwd(), '.auth-cache');
+    const legacyCache = path.join(legacyDir, 'credentials.json');
+    const legacySalt = path.join(legacyDir, '.salt');
+    const newDir = path.dirname(this.cacheFile);
+    const newCache = this.cacheFile;
+    const newSalt = path.join(newDir, '.salt');
+
+    let legacyCacheExists = false;
+    try {
+      await fs.access(legacyCache);
+      legacyCacheExists = true;
+    } catch {
+      // No legacy cache — nothing to migrate.
+      return;
+    }
+
+    let newCacheExists = false;
+    try {
+      await fs.access(newCache);
+      newCacheExists = true;
+    } catch {
+      // New cache absent — proceed with migration.
+    }
+
+    if (!legacyCacheExists || newCacheExists) {
+      return;
+    }
+
+    try {
+      await fs.mkdir(newDir, { recursive: true, mode: 0o700 });
+      if (process.platform !== 'win32') {
+        // mkdir's `mode` is masked by umask; force-restrict.
+        try { await fs.chmod(newDir, 0o700); } catch { /* best-effort */ }
+      }
+
+      await fs.rename(legacyCache, newCache);
+
+      // Move salt sibling if present. The pre-seeded-salt guard in
+      // getOrCreateEncryptionKey() requires a cache file to coexist before
+      // it trusts an old-mtime salt, so the migrated salt is fine as-is
+      // (cache + salt land together).
+      try {
+        await fs.access(legacySalt);
+        await fs.rename(legacySalt, newSalt);
+      } catch {
+        // No legacy salt — fine; we'll regenerate one if needed.
+      }
+
+      // Clean up empty legacy dir (best-effort).
+      try { await fs.rmdir(legacyDir); } catch { /* may have other files */ }
+
+      logger.warn('migrated cache from legacy <cwd>/.auth-cache to user home', {
+        from: legacyCache,
+        to: newCache
+      });
+    } catch (error) {
+      logger.warn('Legacy cache migration failed; proceeding without it', { error });
+    }
   }
 
   async getUserId(): Promise<string | null> {
@@ -447,38 +539,155 @@ export class AuthManager {
   }
 
   /**
-   * Get encryption key derived from machine-specific data using proper KDF
-   * Uses PBKDF2 with persistent salt for secure key derivation
+   * Get encryption key derived from machine-specific data using proper KDF.
+   * Uses PBKDF2 (100k iter, SHA-256) with persistent salt.
+   *
+   * A11 hardening:
+   *  - Parent dir is 0o700; salt file is 0o600 (UNIX).
+   *  - Regenerate the salt if the on-disk salt file is looser than 0o600.
+   *  - Pre-seeded-cache defense: if a salt file exists but no cache file
+   *    accompanies it AND the salt's mtime predates this process start, the
+   *    salt was almost certainly planted (no legitimate code path leaves a
+   *    salt around without a cache, and a freshly-launched process should
+   *    not inherit a cwd-untouched salt on a clean install). Regenerate.
+   *    Once a legitimate cache exists, the salt is implicitly trusted across
+   *    process restarts.
+   *
+   * Returns the raw 32-byte key (used directly with AES-256-GCM).
    */
-  private async getOrCreateEncryptionKey(): Promise<string> {
-    const saltFile = path.join(path.dirname(this.cacheFile), '.salt');
-    let salt: Buffer;
+  private async getOrCreateEncryptionKey(): Promise<Buffer> {
+    const cacheDir = path.dirname(this.cacheFile);
+    const saltFile = path.join(cacheDir, '.salt');
+    let salt: Buffer | undefined;
+
+    // Ensure parent dir exists with restrictive perms.
+    await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
+    if (process.platform !== 'win32') {
+      try { await fs.chmod(cacheDir, 0o700); } catch { /* best-effort */ }
+    }
+
+    let cacheFileExists = false;
+    try {
+      await fs.access(this.cacheFile);
+      cacheFileExists = true;
+    } catch {
+      // No cache file — fine.
+    }
 
     try {
-      // Try to read existing salt
-      const saltHex = await fs.readFile(saltFile, 'utf-8');
-      salt = Buffer.from(saltHex, 'hex');
-    } catch {
-      // Generate new salt on first use
-      salt = randomBytes(32);
-      await fs.mkdir(path.dirname(saltFile), { recursive: true });
-      await fs.writeFile(saltFile, salt.toString('hex'));
+      const stats = await fs.stat(saltFile);
 
-      // Set restrictive permissions on salt file
+      let regenerate = false;
+
       if (process.platform !== 'win32') {
-        await fs.chmod(saltFile, 0o600);
+        // Mode bits: anything looser than 0o600 (group/other read or write,
+        // or owner-execute set) is a red flag.
+        const perms = stats.mode & 0o777;
+        if ((perms & 0o077) !== 0) {
+          logger.warn('Salt file permissions looser than 0o600; regenerating', {
+            perms: perms.toString(8),
+          });
+          regenerate = true;
+        }
       }
 
+      // Pre-seeded check: salt exists with no accompanying cache AND its
+      // mtime predates this process start → likely planted before launch.
+      if (!cacheFileExists && stats.mtimeMs < PROCESS_START_MS) {
+        logger.warn('Salt file present without cache and predates process; regenerating', {
+          mtime: stats.mtimeMs,
+          processStart: PROCESS_START_MS,
+        });
+        regenerate = true;
+      }
+
+      if (!regenerate) {
+        const saltHex = await fs.readFile(saltFile, 'utf-8');
+        salt = Buffer.from(saltHex.trim(), 'hex');
+        if (salt.length !== 32) {
+          logger.warn('Salt file content malformed; regenerating');
+          salt = undefined;
+        }
+      }
+    } catch {
+      // No salt file yet — fall through to generation.
+    }
+
+    if (!salt) {
+      salt = randomBytes(32);
+      await fs.writeFile(saltFile, salt.toString('hex'), { mode: 0o600 });
+      if (process.platform !== 'win32') {
+        try { await fs.chmod(saltFile, 0o600); } catch { /* best-effort */ }
+      }
       logger.debug('Generated new encryption salt');
     }
 
     // Create machine-specific identifier
     const machineId = `${os.hostname()}-${os.userInfo().username}-${process.platform}`;
 
-    // Use PBKDF2 with 100,000 iterations (NIST recommendation for 2025)
-    const key = pbkdf2Sync(machineId, salt, 100000, 32, 'sha256');
+    // PBKDF2: 100k iterations, SHA-256, 32-byte output. Used directly as the
+    // AES-256-GCM key.
+    return pbkdf2Sync(machineId, salt, 100000, 32, 'sha256');
+  }
 
-    return key.toString('hex').substring(0, 32);
+  /**
+   * AES-256-GCM encrypt: returns base64(nonce(12) || ciphertext || authTag(16)).
+   * Key MUST be 32 bytes.
+   */
+  private encryptCacheBlob(plaintext: string, key: Buffer): string {
+    if (key.length !== 32) {
+      throw new Error(`encryptCacheBlob: key must be 32 bytes, got ${key.length}`);
+    }
+    const nonce = randomBytes(GCM_NONCE_LEN);
+    const cipher = createCipheriv('aes-256-gcm', key, nonce);
+    const ciphertext = Buffer.concat([
+      cipher.update(plaintext, 'utf8'),
+      cipher.final(),
+    ]);
+    const authTag = cipher.getAuthTag();
+    return Buffer.concat([nonce, ciphertext, authTag]).toString('base64');
+  }
+
+  /**
+   * AES-256-GCM decrypt of base64(nonce(12) || ciphertext || authTag(16)).
+   * Returns null if the input does not match the expected GCM format
+   * (legacy CryptoJS-OpenSSL "Salted__" envelopes will land here and produce
+   * null — the caller deletes the cache and forces re-auth).
+   */
+  private decryptCacheBlob(blob: string, key: Buffer): string | null {
+    let raw: Buffer;
+    try {
+      raw = Buffer.from(blob, 'base64');
+    } catch {
+      return null;
+    }
+    if (raw.length < GCM_NONCE_LEN + GCM_TAG_LEN + 1) {
+      return null;
+    }
+    const nonce = raw.subarray(0, GCM_NONCE_LEN);
+    const authTag = raw.subarray(raw.length - GCM_TAG_LEN);
+    const ciphertext = raw.subarray(GCM_NONCE_LEN, raw.length - GCM_TAG_LEN);
+    if (nonce.length !== GCM_NONCE_LEN || authTag.length !== GCM_TAG_LEN) {
+      return null;
+    }
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+      decipher.setAuthTag(authTag);
+      const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return plain.toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete the cache + salt files (best-effort). Used when we detect a legacy
+   * CryptoJS-format cache and want a clean slate before forcing re-auth.
+   */
+  private async deleteCacheAndSalt(): Promise<void> {
+    const saltFile = path.join(path.dirname(this.cacheFile), '.salt');
+    try { await fs.unlink(this.cacheFile); } catch { /* may not exist */ }
+    try { await fs.unlink(saltFile); } catch { /* may not exist */ }
   }
 
   /**
@@ -493,15 +702,37 @@ export class AuthManager {
     }
 
     // Fall back to encrypted file
+    let encryptedData: string;
     try {
-      const encryptedData = await fs.readFile(this.cacheFile, 'utf-8');
-      const encryptionKey = await this.getOrCreateEncryptionKey();
-      const decrypted = CryptoJS.AES.decrypt(encryptedData, encryptionKey).toString(CryptoJS.enc.Utf8);
-      this.credentials = JSON.parse(decrypted);
+      encryptedData = await fs.readFile(this.cacheFile, 'utf-8');
+    } catch {
+      logger.debug('No cached credentials found');
+      return;
+    }
+
+    let encryptionKey: Buffer;
+    try {
+      encryptionKey = await this.getOrCreateEncryptionKey();
+    } catch (error) {
+      logger.warn('Failed to derive encryption key; ignoring cache', { error });
+      return;
+    }
+
+    const plaintext = this.decryptCacheBlob(encryptedData.trim(), encryptionKey);
+    if (plaintext === null) {
+      // A12: legacy CryptoJS-OpenSSL format (or otherwise unparseable). Per
+      // plan Option A: delete and force re-auth — no migration code path.
+      logger.warn('legacy cache format detected, please re-authenticate');
+      await this.deleteCacheAndSalt();
+      return;
+    }
+
+    try {
+      this.credentials = JSON.parse(plaintext);
       logger.debug('Loaded encrypted credentials from file');
     } catch (error) {
-      // No cached credentials or decryption failed
-      logger.debug('No cached credentials found');
+      logger.warn('Decrypted cache JSON malformed; deleting and re-auth required', { error });
+      await this.deleteCacheAndSalt();
     }
   }
 
@@ -515,17 +746,22 @@ export class AuthManager {
       return;
     }
 
-    // Fall back to encrypted file
+    // Fall back to encrypted file (AES-256-GCM, native node:crypto).
     try {
-      await fs.mkdir(path.dirname(this.cacheFile), { recursive: true });
-      const credentialsJson = JSON.stringify(this.credentials);
+      const cacheDir = path.dirname(this.cacheFile);
+      await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
+      if (process.platform !== 'win32') {
+        try { await fs.chmod(cacheDir, 0o700); } catch { /* best-effort */ }
+      }
+
       const encryptionKey = await this.getOrCreateEncryptionKey();
-      const encrypted = CryptoJS.AES.encrypt(credentialsJson, encryptionKey).toString();
-      await fs.writeFile(this.cacheFile, encrypted);
+      const credentialsJson = JSON.stringify(this.credentials);
+      const encrypted = this.encryptCacheBlob(credentialsJson, encryptionKey);
+      await fs.writeFile(this.cacheFile, encrypted, { mode: 0o600 });
 
       // Set file permissions to user-only (Unix systems)
       if (process.platform !== 'win32') {
-        await fs.chmod(this.cacheFile, 0o600);
+        try { await fs.chmod(this.cacheFile, 0o600); } catch { /* best-effort */ }
       }
 
       logger.debug('Saved encrypted credentials to file');

@@ -156,13 +156,6 @@ export class AgentServiceClient {
 
     logger.debug('Final gRPC metadata keys:', Object.keys(metadata.getMap()));
 
-    // Verify x-user-id is actually in metadata
-    const xUserIdInMetadata = metadata.get('x-user-id');
-    logger.info('METADATA x-user-id CHECK:', {
-      hasXUserId: xUserIdInMetadata.length > 0,
-      xUserIdValue: xUserIdInMetadata.length > 0 ? xUserIdInMetadata[0] : 'NOT FOUND'
-    });
-
     return metadata;
   }
 
