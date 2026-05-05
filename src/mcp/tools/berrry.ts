@@ -30,7 +30,13 @@ async function tryDeleteTool(
 export function berrryRegisterToolTool(clients: BackendClients): Tool {
   return {
     name: 'berrry_register_tool',
-    description: 'Register an existing Berrry app as a JauMemory tool. Verifies the app exists via NOMCP before finalizing. Requires a vault credential with your Berrry NOMCP token (store one first with vault_store).',
+    description: `Register an EXISTING Berrry app as a JauMemory tool. Does NOT deploy — the app must already live at <subdomain>.berrry.app. Verifies via the NOMCP files endpoint before finalizing; rolls back the tool entry if the app is missing or the token is rejected.
+
+REQUIRES: a vault credential containing your Berrry NOMCP token (brry_rw_*). Store one first with vault_store.
+
+USE THIS WHEN: you already created the app via the Berrry web UI (which has AI-prompt-based generation) or another path, and just want JauMemory to expose it as a callable tool. Use berrry_create_tool instead if you want JauMemory to deploy fresh files.
+
+AFTER REGISTER: Use tool_call with the returned slug to hit the app's HTTP API. Use path_suffix "__nomcp/..." with the same slug to manage files/versions through NOMCP.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -175,7 +181,23 @@ Use tool_call with path_suffix "__nomcp/..." to manage the app via NOMCP.`
 export function berrryCreateToolTool(clients: BackendClients): Tool {
   return {
     name: 'berrry_create_tool',
-    description: 'Create a new Berrry app AND register it as a JauMemory tool in one step. Provide app files or remix from an existing app. Requires a vault credential with your Berrry NOMCP token.',
+    description: `Create a new Berrry app AND register it as a JauMemory tool in one step.
+
+INPUT MODES (mutually exclusive — pass exactly one):
+  • files_json — JSON array of files: [{"name":"index.html","content":"..."}, ...]. index.html is required. Each file ≤ 2 MB.
+  • remix_from — subdomain of an existing Berrry app to fork.
+
+NOTE: Berrry's NOMCP API does NOT expose AI-prompt-based generation. The "describe your app idea" feature on berrry.app/create is web-form-only. Through this tool, you must supply finished file contents (or remix an existing app). If you want AI to write the files, generate them in your assistant first, then pass them as files_json.
+
+VISIBILITY (optional, default "public"):
+  • public — all tiers
+  • unlisted — Pro+ only
+  • private — Pro+ only
+Non-public values return 403 if the account isn't on Pro; the tool surfaces a friendly upgrade hint and rolls back the JauMemory tool entry.
+
+REQUIRES: a vault credential containing your Berrry NOMCP token (brry_rw_*). Store it once with vault_store, then pass nomcp_credential_id on every call.
+
+AFTER CREATE: Use tool_call with the returned slug to hit the app's HTTP API at <subdomain>.berrry.app. Use path_suffix "__nomcp/..." with the same slug to manage app files/versions.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -189,7 +211,7 @@ export function berrryCreateToolTool(clients: BackendClients): Tool {
         },
         files_json: {
           type: 'string',
-          description: 'JSON array of files: [{"name":"index.html","content":"..."},{"name":"api.js","content":"..."}]'
+          description: 'JSON array of finished file contents: [{"name":"index.html","content":"..."}, {"name":"api.js","content":"..."}]. index.html is required. Each file ≤ 2 MB. NOTE: this field expects literal file contents — there is no prompt-based generation on the NOMCP API. Have your assistant write the HTML/JS first, then pass it here.'
         },
         remix_from: {
           type: 'string',
