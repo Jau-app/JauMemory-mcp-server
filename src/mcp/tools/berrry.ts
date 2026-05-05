@@ -208,6 +208,11 @@ export function berrryCreateToolTool(clients: BackendClients): Tool {
           description: 'Authentication path: "user" (API key) or "agent" (Ed25519). Default: "user"',
           enum: ['user', 'agent']
         },
+        visibility: {
+          type: 'string',
+          description: 'App visibility: "public" (default, all tiers) | "unlisted" (Pro+) | "private" (Pro+). Berrry returns 403 if your tier does not include the requested level.',
+          enum: ['public', 'unlisted', 'private']
+        },
         tags: {
           type: 'array',
           items: { type: 'string' },
@@ -226,6 +231,7 @@ export function berrryCreateToolTool(clients: BackendClients): Tool {
         const subdomain: string = args.subdomain;
         const nomcpCredentialId: string = args.nomcp_credential_id;
         const authPath: string = args.auth_path || 'user';
+        const visibility: string = args.visibility || 'public';
         const toolName: string = args.name || subdomain;
         const description: string = args.description || `Berrry app: ${subdomain}.berrry.app`;
 
@@ -252,13 +258,19 @@ export function berrryCreateToolTool(clients: BackendClients): Tool {
           }
           createBody = { subdomain, files: parsedFiles };
         }
+        // Pass-through to Berrry NOMCP. Default 'public' is omitted to keep
+        // the wire body identical to pre-flag callers; only non-default values
+        // travel.
+        if (visibility !== 'public') {
+          createBody.visibility = visibility;
+        }
 
         // Step 1: Register tool entry (backend validates metadata)
         const hostingMetadata = JSON.stringify({
           subdomain,
           nomcp_credential_id: nomcpCredentialId,
           auth_path: authPath,
-          visibility: 'public'
+          visibility
         });
 
         const tool = await clients.tools.createTool({
@@ -300,6 +312,8 @@ export function berrryCreateToolTool(clients: BackendClients): Tool {
           let friendlyMsg = `Berrry app creation failed: ${detail}`;
           if (createResponse.http_status === 409) {
             friendlyMsg = `Subdomain '${subdomain}' is already taken on Berrry.`;
+          } else if (createResponse.http_status === 403 && visibility !== 'public') {
+            friendlyMsg = `Berrry rejected visibility='${visibility}': Pro subscription required for non-public apps. Upgrade at https://berrry.app/subscription, or retry with visibility='public'.`;
           } else if (createResponse.http_status === 401 || createResponse.http_status === 403) {
             friendlyMsg = `NOMCP token rejected (HTTP ${createResponse.http_status}). Check that nomcp_credential_id contains a valid Berrry token.`;
           } else if (createResponse.http_status === 400) {
@@ -330,6 +344,7 @@ Tool ID: ${toolId}
 Tool Slug: ${toolSlug}
 Name: ${toolName}
 App URL: ${appUrl}
+Visibility: ${visibility}
 Auth Path: ${authPath}
 ${args.remix_from ? `Remixed from: ${args.remix_from}` : `Files: ${createBody.files.length} file(s)`}
 
