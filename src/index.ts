@@ -45,6 +45,9 @@ dotenv.config();
 // Import authentication manager
 import { AuthManager } from './auth/AuthManager.js';
 
+// Import client-info propagation (forwards MCP client identity to backend)
+import { installClientInfoInterceptor } from './utils/client-info.js';
+
 // Import tools, resources, and prompts
 import { setupTools } from './mcp/tools/index.js';
 import { setupResources } from './mcp/resources/index.js';
@@ -114,6 +117,14 @@ async function main() {
         }
       }
     );
+
+    // Forward MCP client identity to JauMemory backend in User-Agent.
+    // After the SDK's auto-handled `initialize` handshake, the backend's
+    // session log will show "Claude Desktop / Cursor / Copilot / etc."
+    // instead of the opaque "axios/1.16.0" the request would otherwise
+    // carry. Reads server.getClientVersion() lazily on each request so
+    // it works even before the handshake completes.
+    installClientInfoInterceptor(server);
 
     // Setup tools (listed = visible in tools/list, all = callable)
     const { listed: listedTools, all: allTools } = setupTools(clients);

@@ -768,12 +768,13 @@ export class AuthManager {
   }
 
   /**
-   * Try to use keytar (OS keychain) if available, otherwise fall back to encrypted file
+   * Try to use the OS keychain (via @napi-rs/keyring) if available,
+   * otherwise fall back to the encrypted file at this.cacheFile.
    */
   private async loadCachedCredentials(): Promise<void> {
-    // Try keytar first (if available)
-    const keytarLoaded = await this.tryLoadFromKeytar();
-    if (keytarLoaded) {
+    // Try OS keychain first (if available)
+    const keychainLoaded = await this.tryLoadFromKeychain();
+    if (keychainLoaded) {
       logger.debug('Loaded credentials from OS keychain');
       return;
     }
@@ -816,9 +817,9 @@ export class AuthManager {
   private async saveCachedCredentials(): Promise<void> {
     if (!this.credentials) return;
 
-    // Try keytar first (if available)
-    const keytarSaved = await this.trySaveToKeytar();
-    if (keytarSaved) {
+    // Try OS keychain first (if available)
+    const keychainSaved = await this.trySaveToKeychain();
+    if (keychainSaved) {
       logger.debug('Saved credentials to OS keychain');
       return;
     }
@@ -844,44 +845,46 @@ export class AuthManager {
   }
 
   /**
-   * Try to load credentials from OS keychain using keytar (optional dependency)
+   * Try to load credentials from the OS keychain via @napi-rs/keyring
+   * (optional dependency).
+   *
+   * Migrated from keytar in v0.3.6 — keytar's transitive prebuild-install
+   * was deprecated and unmaintained. @napi-rs/keyring is the actively
+   * maintained equivalent. API uses an Entry class; getPassword() returns
+   * string | null (null = no entry, throws only on real platform errors).
    */
-  private async tryLoadFromKeytar(): Promise<boolean> {
+  private async tryLoadFromKeychain(): Promise<boolean> {
     try {
-      // Dynamic import - won't fail if keytar is not installed
-      const keytar = await import('keytar');
-      const service = 'jaumemory-mcp';
-      const account = 'default';
+      // Dynamic import — won't fail if keyring isn't installed
+      const { Entry } = await import('@napi-rs/keyring');
+      const entry = new Entry('jaumemory-mcp', 'default');
 
-      const password = await keytar.getPassword(service, account);
+      const password = entry.getPassword();
       if (password) {
         this.credentials = JSON.parse(password);
         return true;
       }
     } catch (error) {
-      // keytar not available or failed to load
-      logger.debug('Keytar not available, using file-based storage');
+      // keyring not installed, native lib failed to load, or platform error
+      logger.debug('OS keychain not available, using file-based storage');
     }
     return false;
   }
 
   /**
-   * Try to save credentials to OS keychain using keytar (optional dependency)
+   * Try to save credentials to the OS keychain via @napi-rs/keyring
+   * (optional dependency).
    */
-  private async trySaveToKeytar(): Promise<boolean> {
+  private async trySaveToKeychain(): Promise<boolean> {
     if (!this.credentials) return false;
 
     try {
-      // Dynamic import - won't fail if keytar is not installed
-      const keytar = await import('keytar');
-      const service = 'jaumemory-mcp';
-      const account = 'default';
-
-      await keytar.setPassword(service, account, JSON.stringify(this.credentials));
+      const { Entry } = await import('@napi-rs/keyring');
+      const entry = new Entry('jaumemory-mcp', 'default');
+      entry.setPassword(JSON.stringify(this.credentials));
       return true;
     } catch (error) {
-      // keytar not available or failed to save
-      logger.debug('Keytar not available, using file-based storage');
+      logger.debug('OS keychain not available, using file-based storage');
     }
     return false;
   }
@@ -894,29 +897,37 @@ export class AuthManager {
     // server start would then resume the session via that file.
     //
     // Distinct error categories:
-    //   - keytar absent (module not installed) → debug log, not failure.
-    //   - keytar.deletePassword threw with module loaded → real failure.
+    //   - keyring module absent (not installed) → debug log, not failure.
+    //   - keyring.deletePassword returned false → no entry to clear, not failure.
+    //   - keyring.deletePassword threw → real platform error
+    //     (libsecret access denied, Keychain locked, ambiguous credential, etc.).
     //   - cache-file unlink ENOENT → not a failure (no cache to clear).
     //   - cache-file unlink other error (EACCES, EBUSY, etc.) → real
     //     failure; throw so logout.ts can surface it to the user.
+    //
+    // Migrated keytar → @napi-rs/keyring in v0.3.6. The new lib's
+    // sync Entry API returns boolean from deletePassword (true if a
+    // credential was deleted, false if there was none). Throws are
+    // reserved for actual platform errors.
     this.credentials = undefined;
 
-    let keytarError: unknown;
-    let keytarAvailable = true;
+    let keyringError: unknown;
+    let keyringAvailable = true;
     try {
-      const keytar = await import('keytar');
-      const service = 'jaumemory-mcp';
-      const account = 'default';
+      const { Entry } = await import('@napi-rs/keyring');
+      const entry = new Entry('jaumemory-mcp', 'default');
       try {
-        await keytar.deletePassword(service, account);
-        logger.debug('Cleared credentials from OS keychain');
+        const deleted = entry.deletePassword();
+        logger.debug(deleted
+          ? 'Cleared credentials from OS keychain'
+          : 'OS keychain had no credentials to clear');
       } catch (err) {
-        keytarError = err;
-        logger.warn('clearSession: keytar deletePassword failed', { error: err });
+        keyringError = err;
+        logger.warn('clearSession: keyring deletePassword failed', { error: err });
       }
     } catch {
-      // keytar module not installed; not a failure.
-      keytarAvailable = false;
+      // keyring module not installed (e.g. native build skipped); not a failure.
+      keyringAvailable = false;
     }
 
     let unlinkError: unknown;
@@ -944,16 +955,16 @@ export class AuthManager {
       /* salt missing or unreadable — non-fatal */
     }
 
-    // Both keytar and unlink failures = full failure (the persisted
+    // Both keychain and unlink failures = full failure (the persisted
     // cache still exists). Either alone is also a failure: a stuck
-    // keychain entry can resume the session on platforms where keytar
+    // keychain entry can resume the session on platforms where keyring
     // load order beats file load order.
     if (unlinkError !== undefined) {
       const msg = unlinkError instanceof Error ? unlinkError.message : String(unlinkError);
       throw new Error(`Failed to delete cached credentials file: ${msg}`);
     }
-    if (keytarAvailable && keytarError !== undefined) {
-      const msg = keytarError instanceof Error ? keytarError.message : String(keytarError);
+    if (keyringAvailable && keyringError !== undefined) {
+      const msg = keyringError instanceof Error ? keyringError.message : String(keyringError);
       throw new Error(`Failed to clear OS keychain entry: ${msg}`);
     }
   }

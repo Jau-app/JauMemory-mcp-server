@@ -153,33 +153,38 @@ async function uninstallJauMemoryMCP() {
   // 3. Clear keychain/credential store entries
   log('\n3. Clearing stored credentials...', 'blue');
 
-  // Try to use keytar if available (optional dependency)
-  let keytarAvailable = false;
+  // Try to use the OS keychain via @napi-rs/keyring (optional dependency).
+  // Migrated from keytar in v0.3.6.
+  let keyringAvailable = false;
   try {
-    // Dynamic import with type assertion to handle optional dependency
-    const keytar = await import('keytar').catch(() => null);
+    const keyring = await import('@napi-rs/keyring').catch(() => null);
 
-    if (keytar) {
-      keytarAvailable = true;
-      // Remove stored credentials from OS keychain
+    if (keyring) {
+      keyringAvailable = true;
+      // Remove stored credentials from OS keychain across all known service
+      // names this package has used over time. findCredentials is synchronous
+      // in @napi-rs/keyring (vs keytar's async); Entry.deletePassword is too.
       const services = ['jaumemory', 'jaumemory-pg', 'jaumemory-production', 'jaumemory-mcp'];
       for (const service of services) {
         try {
-          const creds = await keytar.findCredentials(service);
+          const creds = keyring.findCredentials(service);
           for (const cred of creds) {
-            await keytar.deletePassword(service, cred.account);
+            const entry = new keyring.Entry(service, cred.account);
+            entry.deletePassword();
             log(`  ✓ Removed credentials for ${cred.account} from OS keychain`, 'green');
           }
         } catch (err) {
-          // Continue with other services
+          // Per-service failure (libsecret access denied, ambiguous credential, etc.) —
+          // continue with the remaining services so a partial keychain doesn't block uninstall.
         }
       }
     }
   } catch (error) {
-    // Keytar not available - this is fine
+    // @napi-rs/keyring not installed (optional dep skipped, native build failed, etc.) —
+    // not a failure for the uninstall flow.
   }
 
-  if (!keytarAvailable) {
+  if (!keyringAvailable) {
     log('  - OS keychain not available (using file-based storage)', 'yellow');
   }
   
