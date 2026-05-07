@@ -110,7 +110,22 @@ async function uninstallJauMemoryMCP() {
     }
     // 2. Remove local cache and credentials
     log('\n2. Removing local cache and credentials...', 'blue');
-    // Remove cache directories
+    // A11: real credential cache lives in user home — clean it up first.
+    if (process.platform === 'win32') {
+        const appData = process.env.APPDATA
+            || path.join(os.homedir(), 'AppData', 'Roaming');
+        const mcpCacheDir = path.join(appData, 'jaumemory-mcp');
+        await removeIfExists(mcpCacheDir, 'JauMemory MCP credential cache (APPDATA)');
+    }
+    else {
+        const mcpCacheDir = path.join(os.homedir(), '.config', 'jaumemory-mcp');
+        await removeIfExists(mcpCacheDir, 'JauMemory MCP credential cache (~/.config/jaumemory-mcp)');
+    }
+    // Legacy cache location (pre-A11). Remove if still present.
+    const legacyCacheDir = path.join(process.cwd(), '.auth-cache');
+    await removeIfExists(legacyCacheDir, 'Legacy <cwd>/.auth-cache directory');
+    // Phantom legacy directories — kept for compat with older installs that
+    // may have written under these paths. Safe to remove if present.
     const cacheDir = path.join(os.homedir(), '.cache', 'jaumemory');
     await removeIfExists(cacheDir, 'JauMemory cache directory');
     const configDir = path.join(os.homedir(), '.config', 'jaumemory');

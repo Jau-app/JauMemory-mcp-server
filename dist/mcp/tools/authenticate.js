@@ -36,53 +36,56 @@ export function authenticateTool(clients) {
                 await authManager.completeAuthentication(request_id, auth_token);
                 // Get the user ID from auth manager
                 const userId = await authManager.getUserId();
+                // Plan A3: do NOT echo `auth_token` (or `request_id`) back to the
+                // LLM. Earlier versions printed env-var setup lines that placed
+                // the live bearer-equivalent credential into the conversation
+                // transcript, where it could be exfiltrated by any downstream
+                // consumer of the LLM's output. AuthManager.completeAuthentication
+                // (called above) has already auto-persisted (request_id, auth_token)
+                // to the on-disk credential cache, so subsequent runs of this
+                // server resume without re-auth without ever needing to read the
+                // token from a transcript.
                 return [
                     {
                         type: 'text',
                         text: `✅ Authentication successful!
 
-🎉 You are now logged in to JauMemory!
+You are now logged in to JauMemory as user ${userId}. Credentials have been stored locally and will be reused on subsequent server runs — no environment variables required.
 
-User ID: ${userId}
-
-✅ You can now use all JauMemory tools:
-   - remember: Store new memories
-   - recall: Search your memories
-   - forget: Delete memories
-   - analyze: Analyze memory patterns
-   - And many more!
-
-💾 To save credentials for future sessions, add to your environment:
-   JAUMEMORY_REQUEST_ID=${request_id}
-   JAUMEMORY_AUTH_TOKEN=${auth_token}`
+You can now use all JauMemory tools (remember, recall, forget, analyze, etc.).`
                     }
                 ];
             }
             catch (error) {
                 logger.error('MCP authentication failed:', error);
-                // Extract error message without circular references
+                // Extract error message without leaking the original request body.
+                //
+                // Plan A3 review finding H2: the previous fallback used
+                // `JSON.stringify(error, null, 2)` which serialized the entire
+                // error object including `error.config.data` for axios errors.
+                // For authentication failures the request body contains the live
+                // `auth_token` and `request_id` — exactly what A3 set out to keep
+                // out of the LLM transcript. Whitelisting fields only.
                 let errorMsg = 'Unknown authentication error';
-                if (error.response?.data?.detail) {
+                if (typeof error?.response?.data?.detail === 'string') {
                     errorMsg = error.response.data.detail;
                 }
-                else if (error.response?.data?.error) {
+                else if (typeof error?.response?.data?.error === 'string') {
                     errorMsg = error.response.data.error;
                 }
-                else if (error.message) {
+                else if (typeof error?.response?.status === 'number') {
+                    errorMsg = `Server returned HTTP ${error.response.status}`;
+                }
+                else if (typeof error?.message === 'string') {
                     errorMsg = error.message;
                 }
                 else if (typeof error === 'string') {
                     errorMsg = error;
                 }
-                else {
-                    // Avoid [object Object] - use safe stringification
-                    try {
-                        errorMsg = JSON.stringify(error, null, 2);
-                    }
-                    catch {
-                        errorMsg = 'Authentication failed - please check your auth token and try again';
-                    }
-                }
+                // Deliberately NO fallback that serializes `error` itself — too
+                // many ways for an axios/fetch/etc. error wrapper to embed the
+                // request body. The generic "please retry" message below is the
+                // safe last resort.
                 // Return a simple error message without circular references
                 const cleanError = new Error(`Authentication failed: ${errorMsg}`);
                 throw cleanError;

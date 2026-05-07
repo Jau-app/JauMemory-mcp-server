@@ -3,6 +3,7 @@
  *
  * Connects to the Rust backend collections service for managing memory collections
  */
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -25,9 +26,7 @@ export class CollectionsServiceClient {
     client;
     authManager;
     constructor(address, authManager, useTls = true) {
-        const credentials = useTls
-            ? grpc.credentials.createSsl()
-            : grpc.credentials.createInsecure();
+        const credentials = buildCredentials(useTls);
         this.client = new CollectionService(address, credentials);
         this.authManager = authManager;
         logger.info(`Connected to Collections Service at ${address} (TLS: ${useTls})`);

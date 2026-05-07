@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server that connects Claude Desktop to the JauMem
 ## Prerequisites
 
 - Node.js 18+ installed
-- A JauMemory account (sign up at https://app.jaumemory.com)
+- A JauMemory account (sign up at https://mem.jau.app)
 - Claude Desktop installed
 
 ## Installation
@@ -200,8 +200,8 @@ npm run lint
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `JAUMEMORY_API_URL` | API endpoint | `https://api.jaumemory.com` |
-| `JAUMEMORY_GRPC_URL` | gRPC endpoint | `grpc.jaumemory.com:443` |
+| `JAUMEMORY_API_URL` | API endpoint | `https://mem.jau.app` |
+| `JAUMEMORY_GRPC_URL` | gRPC endpoint | `mem.jau.app:50051` |
 | `JAUMEMORY_AUTH_HASH` | Saved auth hash | - |
 | `JAUMEMORY_USERNAME` | Username for initial auth | - |
 | `JAUMEMORY_PASSWORD` | Password for initial auth | - |
@@ -212,8 +212,8 @@ npm run lint
 ## Support
 
 - **Issues**: https://github.com/Jau-app/jauauth-mcp-server/issues
-- **Documentation**: https://docs.jaumemory.com
-- **Email**: support@jaumemory.com
+- **Documentation**: https://jau.app/docs
+- **Email**: support@jau.app
 
 ## License
 

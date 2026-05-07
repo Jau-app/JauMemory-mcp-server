@@ -3,6 +3,7 @@
  *
  * Connects to the Rust backend agent service for multi-agent memory management
  */
+import { buildCredentials } from '../../client/tls-config.js';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
@@ -25,9 +26,7 @@ export class AgentServiceClient {
     client;
     authManager;
     constructor(address, authManager, useTls = true) {
-        const credentials = useTls
-            ? grpc.credentials.createSsl()
-            : grpc.credentials.createInsecure();
+        const credentials = buildCredentials(useTls);
         this.client = new AgentService(address, credentials);
         this.authManager = authManager;
         logger.info(`Connected to Agent Service at ${address} (TLS: ${useTls})`);
@@ -44,12 +43,6 @@ export class AgentServiceClient {
         metadata.add('x-client-type', 'mcp-server');
         metadata.add('x-client-id', 'jaumemory-agent-mcp');
         logger.debug('Final gRPC metadata keys:', Object.keys(metadata.getMap()));
-        // Verify x-user-id is actually in metadata
-        const xUserIdInMetadata = metadata.get('x-user-id');
-        logger.info('METADATA x-user-id CHECK:', {
-            hasXUserId: xUserIdInMetadata.length > 0,
-            xUserIdValue: xUserIdInMetadata.length > 0 ? xUserIdInMetadata[0] : 'NOT FOUND'
-        });
         return metadata;
     }
     async createAgent(request) {

@@ -123,8 +123,8 @@ npm run build
 
 ## Support Channels
 - GitHub Issues: https://github.com/Jau-app/jaumemory-mcp-server/issues
-- Documentation: https://docs.jaumemory.com
-- Website: https://jaumemory.com
+- Documentation: https://jau.app/docs
+- Website: https://jau.app
 
 ---
 
