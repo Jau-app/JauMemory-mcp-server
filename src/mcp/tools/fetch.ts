@@ -18,7 +18,7 @@ interface Document {
 export function fetch(_clients: BackendClients): Tool {
   return {
     name: 'fetch',
-    description: 'Retrieve complete documentation for a specific JauMemory tool by ID.',
+    description: 'Discovery-only. Returns route documentation for a tool by name. Does NOT look up memory by UUID. Use `recall` (via tools/call) for memory access after completing mcpLogin + mcpAuthenticate.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -32,11 +32,19 @@ export function fetch(_clients: BackendClients): Tool {
     handler: async (args: { id: string }) => {
       const { id } = args;
 
-      const document = getDocumentById(id);
-
-      if (!document) {
-        throw new Error(`Tool documentation not found for ID: ${id}`);
-      }
+      // Discovery-only contract — see plan v14, Fix 2 / Rust handlers.rs
+      // build_fetch_discovery_response. fetch is for tool/route catalogs,
+      // never memory content. Unknown IDs return the stable
+      // `tool_directory` descriptor — DO NOT echo the input id back, and
+      // DO NOT throw (clients shouldn't have to handle a -32603 just
+      // because they probed an unfamiliar tool name).
+      const document = getDocumentById(id) ?? {
+        id: "tool_directory",
+        title: "JauMemory MCP Server - Discovery Tools",
+        text: "search and fetch are discovery tools. To access memory content, use `recall` (under tools/call) after completing mcpLogin and mcpAuthenticate.",
+        url: "https://mem.jau.app/mcp/tools",
+        metadata: { source: "jaumemory", type: "tool_directory" }
+      };
 
       // Return as array — index.ts wraps in { content: [...] }
       return [
@@ -51,6 +59,31 @@ export function fetch(_clients: BackendClients): Tool {
 
 function getDocumentById(id: string): Document | null {
   const docs: Record<string, Document> = {
+    // Agent-onboarding docs (public, no auth required)
+    "get_guide": {
+      id: "get_guide",
+      title: "get_guide - Fetch Agent-Onboarding Docs",
+      text: `Fetch JauMemory usage documentation over the public /v1/help/* HTTP route. No authentication required — same posture as search and fetch.
+
+Call shapes (pass exactly ONE of topic / persona / search, or none for the index):
+- get_guide()                         → topic index (every doc summary)
+- get_guide({ topic: "<slug>" })      → specific topic body (e.g. "concepts/shortcuts", "tools/memory/remember", "workflows/debugging-loop")
+- get_guide({ persona: "<name>" })    → copy-pasteable system-prompt chunk; name is one of: coding-assistant | personal-memory | cross-platform-context | app-backbone
+- get_guide({ search: "<query>" })    → matching topic summaries (substring/keyword)
+
+Multi-arg requests are rejected with a clear error rather than silently picking one.
+
+Common starting points:
+- get_guide({ topic: "index" })  ← table of contents
+- get_guide({ persona: "coding-assistant" })  ← system-prompt chunk for Claude Code users
+- get_guide({ topic: "concepts/shortcuts" })  ← full shortcut flag list
+- get_guide({ topic: "concepts/multi-agent-collab" })  ← multi-session coordination
+
+Use this when: you don't know how a JauMemory tool works, you want to coordinate with another agent across sessions, or the user asks "how do I…".`,
+      url: "/api/v1/mcp/tools#get_guide",
+      metadata: { category: "discovery", required_params: [] }
+    },
+
     // Authentication tools
     "mcp_login": {
       id: "mcp_login",
@@ -133,12 +166,14 @@ remember({
   shortcuts: ["--bug", "--high", "--project webapp"]
 })
 
-Available shortcuts:
-- Types: --todo, --task, --bug, --question, --note, --reflection
-- Status: --pending, --wip, --done, --blocked [reason]
-- Priority: --low, --medium, --high, --urgent
-- Agents: --assign @agent-name, --notify @agent1,@agent2
-- Project: --project name
+Available shortcuts (pure normalization — no notifications fire; assignments are queryable metadata):
+- Types: --todo, --task, --bug, --question, --note, --reflection (each appended to tags)
+- Status: --pending, --wip, --done, --blocked [reason] (set metadata.status; --blocked also sets metadata.blocked_reason)
+- Priority: --low, --medium, --high, --urgent (set metadata.priority — NOT appended to tags)
+- Agents: --assign @agent-name (appended to metadata.assigned_to[]), --notify @a,@b (appended to metadata.notify_list[])
+- Project / Repo: --project name, --repo url
+
+For the full shortcut spec + examples, call get_guide({ topic: "concepts/shortcuts" }).
 
 Returns:
 - Memory ID
@@ -187,28 +222,31 @@ Returns:
     "update": {
       id: "update",
       title: "update - Update Existing Memory",
-      text: `Updates an existing memory's content, metadata, or status.
+      text: `Updates an existing memory's content, metadata, status, or assignment.
 
 Parameters:
 - memoryId (required): The ID of the memory to update
-- content (optional): New memory content
-- shortcuts (optional): Shortcut flags for status/priority updates
-- tags (optional): New tags (replaces existing tags)
-- importance (optional): New importance score 0-1
-- context (optional): Updated context
-- metadata (optional): Updated metadata (merges with existing)
+- content (optional): New content (replaces existing)
+- context (optional): New context (replaces existing)
+- importance (optional): New importance (0-1)
+- tags (optional): New tags. When provided, REPLACES the existing tag base BEFORE shortcuts apply on top.
+- metadata (optional): Explicit metadata patch. Deep-merges into existing metadata LAST (after shortcuts), so e.g. { "assigned_to": [] } clears an existing assignment array.
+- shortcuts (optional): Shortcut flags — additive. No shortcut ever CLEARS existing values; only the explicit metadata field can clear/replace.
+
+Merge order on update:
+  1. Existing tags + metadata loaded from the row
+  2. Tags base = explicit \`tags\` if provided, else carry existing
+  3. Shortcuts apply (additive on top of base)
+  4. Explicit \`metadata\` deep-merges LAST — final wins
 
 Usage:
 update({
   memoryId: "mem-123-456",
-  shortcuts: ["--done"],
+  shortcuts: ["--done", "--assign @reviewer-007"],
   context: "Bug fixed and deployed"
 })
 
-Status shortcuts:
-- --done: Mark as completed
-- --wip: Work in progress
-- --blocked [reason]: Blocked with reason
+For the full shortcut spec, call get_guide({ topic: "concepts/shortcuts" }). For workflow examples, call get_guide({ topic: "concepts/multi-agent-collab" }).
 
 Returns:
 - Update confirmation

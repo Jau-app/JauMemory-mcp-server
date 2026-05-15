@@ -12,7 +12,8 @@ const rememberSchema = z.object({
   context: z.string().optional().describe('Additional context for the memory'),
   importance: z.number().min(0).max(1).optional().describe('Importance score (0-1)'),
   tags: z.array(z.string()).optional().describe('Tags for categorization'),
-  metadata: z.record(z.any()).optional().describe('Additional metadata'),
+  metadata: z.record(z.any()).optional().describe('Additional metadata (can include arrays / nested objects)'),
+  shortcuts: z.array(z.string()).optional().describe('Quick-flag shortcuts like --bug, --high, --assign @x, --blocked <reason>. See get_guide({ topic: "concepts/shortcuts" }) for the full list.'),
 });
 
 export function rememberTool(clients: BackendClients): Tool {
@@ -44,7 +45,12 @@ export function rememberTool(clients: BackendClients): Tool {
         metadata: {
           type: 'object',
           additionalProperties: true,
-          description: 'Additional metadata'
+          description: 'Additional metadata (can include arrays / nested objects)'
+        },
+        shortcuts: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Quick-flag shortcuts like "--bug", "--high", "--assign @coder-001", "--blocked waiting on contract". Parsed server-side into structured tags + metadata. Call get_guide({ topic: "concepts/shortcuts" }) for the full flag list and semantics.'
         }
       },
       required: ['content']
@@ -66,7 +72,8 @@ export function rememberTool(clients: BackendClients): Tool {
           context: input.context,
           importance: input.importance || 0.5,
           tags: input.tags || [],
-          metadata: input.metadata || {}
+          metadata: input.metadata || {},
+          shortcuts: input.shortcuts
         });
         
         logger.info('Memory created successfully', { memoryId: memory.id });

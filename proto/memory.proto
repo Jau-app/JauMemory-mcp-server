@@ -46,6 +46,14 @@ message Memory {
   optional string embedding_id = 10;
   map<string, string> metadata = 11;
   string memory_type = 12;  // Memory classification: error, solution, insight, question, context, task
+
+  // Full-fidelity metadata as a JSON-serialized object. Always
+  // populated on responses by the shared memory_to_proto helper.
+  // Use this instead of the legacy `metadata` map (field 11) when
+  // metadata may contain arrays (e.g. assigned_to: ["coder-001"])
+  // or other non-string values that can't round-trip through
+  // map<string,string>. Empty string means "no metadata."
+  string metadata_json = 13;
 }
 
 // Create memory request
@@ -56,6 +64,23 @@ message CreateMemoryRequest {
   optional float importance = 4;
   repeated string tags = 5;
   map<string, string> metadata = 6;
+
+  // Quick-flag shortcuts (e.g. "--bug", "--high",
+  // "--assign @coder-001", "--blocked waiting on contract").
+  // Parsed pure-normalization-only by the server into tags +
+  // metadata before persisting. See concepts/shortcuts in
+  // /v1/help for the full flag list.
+  repeated string shortcuts = 7;
+
+  // Full-fidelity metadata as a JSON-serialized object. When
+  // non-empty MUST parse as a JSON object (`{}` valid; `[]`,
+  // string, number, bool, null all invalid_argument). Takes
+  // precedence over the legacy `metadata` map (field 6) for
+  // this request. Empty string = absent (fall back to legacy
+  // map). Required for round-tripping array values like
+  // `assigned_to: ["coder-001"]` that the legacy
+  // map<string,string> can't hold.
+  string metadata_json = 8;
 }
 
 // Recall memories request
@@ -100,6 +125,22 @@ message UpdateMemoryRequest {
   optional float importance = 5;
   repeated string tags = 6;
   map<string, string> metadata = 7;
+
+  // Quick-flag shortcuts. Same parser as CreateMemoryRequest.
+  // Update semantics are additive: shortcut output is merged
+  // into the existing row's tags/metadata; no shortcut ever
+  // clears existing values. Only explicit `metadata` (or
+  // `metadata_json`) on this request can clear/replace.
+  repeated string shortcuts = 8;
+
+  // Full-fidelity metadata as a JSON-serialized object. Same
+  // contract as CreateMemoryRequest.metadata_json (non-empty
+  // must be a JSON object; non-object values rejected with
+  // invalid_argument). When set, this is deep-merged into the
+  // row's existing metadata LAST (after shortcut application),
+  // so callers can clear array fields like
+  // `metadata_json = '{"assigned_to": []}'`.
+  string metadata_json = 9;
 }
 
 // Delete memory request

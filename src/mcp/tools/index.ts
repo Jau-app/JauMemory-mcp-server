@@ -2,9 +2,13 @@
  * MCP Tools Router
  *
  * Supports two modes via MCP_TOOL_LOADING env var:
- *   "flat"    (default) — all 43 tools in tools/list
- *   "grouped" — 12 tools: 8 category routers + 4 direct tools
+ *   "flat"    (default) — all 50 tools in tools/list
+ *   "grouped" — N tools: category routers + direct tools
  *               (mcp_authenticate hidden, schema provided by mcp_login response)
+ *
+ * Canonical tool count = 50 (see src/features/help/canonical.rs::CANONICAL_TS_TOOLS).
+ * If you add/remove a tool, update CANONICAL_TS_TOOLS too — the
+ * help validator gates on parity.
  */
 
 import { rememberTool } from './remember.js';
@@ -28,6 +32,8 @@ import { agentCollaborationTool } from './agent_collaboration.js';
 // ChatGPT OAuth required tools
 import { search } from './search.js';
 import { fetch } from './fetch.js';
+// Agent-onboarding docs — public, same posture as search/fetch
+import { getGuideTool } from './get_guide.js';
 // Collections - PostgreSQL version with UUID support and consolidation
 import {
   createCollectionTool,
@@ -75,12 +81,15 @@ export interface Tool {
   handler: (args: any) => Promise<any>;
 }
 
-/** Build the complete flat tool map (all 43 tools) */
+/** Build the complete flat tool map (all 50 tools) */
 function buildFlatTools(clients: BackendClients): Record<string, Tool> {
   return {
     // ChatGPT OAuth required tools
     search: search(clients),
     fetch: fetch(clients),
+
+    // Agent-onboarding docs (public, no auth required)
+    get_guide: getGuideTool(clients),
 
     // Authentication tools
     mcp_login: loginTool(clients),

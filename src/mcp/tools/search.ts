@@ -16,7 +16,7 @@ interface SearchResult {
 export function search(_clients: BackendClients): Tool {
   return {
     name: 'search',
-    description: 'Search for JauMemory tools and capabilities. Returns actual tool names and documentation.',
+    description: 'Discovery-only. Returns the JauMemory tool catalog (id, title, url) regardless of authentication state. Use `recall` (via tools/call) for memory access after completing mcpLogin + mcpAuthenticate.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -32,6 +32,12 @@ export function search(_clients: BackendClients): Tool {
 
       // Our actual JauMemory tools
       const allTools: SearchResult[] = [
+        // Agent-onboarding docs tool (public, no auth)
+        {
+          id: "get_guide",
+          title: "get_guide - Fetch agent-onboarding usage docs (no auth required)",
+          url: "/api/v1/mcp/fetch?id=get_guide"
+        },
         // Authentication tools
         {
           id: "mcp_login",

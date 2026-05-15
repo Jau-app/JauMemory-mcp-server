@@ -62,7 +62,16 @@ export interface CreateMemoryRequest {
   context?: string;
   importance?: number;
   tags?: string[];
-  metadata?: Record<string, string>;
+  /** Arbitrary JSON metadata. Can include arrays (e.g. assigned_to),
+   * objects, numbers, etc. Serialized into proto field `metadata_json`
+   * for full round-trip fidelity. */
+  metadata?: Record<string, any>;
+  /** Quick-flag shortcuts like "--bug", "--high",
+   * "--assign @coder-001", "--blocked waiting on contract". Parsed
+   * server-side into structured `tags` + `metadata`. See
+   * `get_guide({ topic: "concepts/shortcuts" })` for the full flag
+   * list. */
+  shortcuts?: string[];
 }
 
 export interface Memory {
@@ -144,8 +153,19 @@ export class MemoryServiceClient {
   }
 
   async createMemory(request: CreateMemoryRequest): Promise<Memory> {
-    const metadata = await this.createMetadata();
-    
+    const grpcMeta = await this.createMetadata();
+
+    // Build the proto request. The server prefers `metadata_json` over
+    // the legacy `metadata` string map for full-fidelity values
+    // (arrays, nested objects). We serialize the whole `request.metadata`
+    // object into `metadata_json` and send the legacy `metadata` as an
+    // empty map — server picks up `metadata_json` per the v6 contract.
+    // proto-loader keepCase: true means field names match proto verbatim,
+    // so snake_case is correct here.
+    const metadataJson = request.metadata
+      ? JSON.stringify(request.metadata)
+      : '';
+
     return new Promise((resolve, reject) => {
       this.client.createMemory({
         user_id: request.userId,
@@ -153,8 +173,10 @@ export class MemoryServiceClient {
         context: request.context,
         importance: request.importance,
         tags: request.tags || [],
-        metadata: request.metadata || {}
-      }, metadata, (error: any, response: any) => {
+        metadata: {},
+        metadata_json: metadataJson,
+        shortcuts: request.shortcuts || []
+      }, grpcMeta, (error: any, response: any) => {
         if (error) {
           logger.error('CreateMemory error:', error);
           reject(error);
@@ -236,9 +258,19 @@ export class MemoryServiceClient {
     });
   }
 
-  async updateMemory(id: string, userId: string, updates: Partial<Memory>): Promise<Memory> {
-    const metadata = await this.createMetadata();
-    
+  async updateMemory(
+    id: string,
+    userId: string,
+    updates: Partial<Memory> & { shortcuts?: string[] }
+  ): Promise<Memory> {
+    const grpcMeta = await this.createMetadata();
+
+    // Serialize metadata to metadata_json for full fidelity (same as
+    // createMemory). Legacy `metadata` map sent empty; server picks
+    // up `metadata_json` per the v6 contract.
+    const metadataJson =
+      updates.metadata !== undefined ? JSON.stringify(updates.metadata) : '';
+
     return new Promise((resolve, reject) => {
       this.client.updateMemory({
         id,
@@ -247,8 +279,10 @@ export class MemoryServiceClient {
         context: updates.context,
         importance: updates.importance,
         tags: updates.tags,
-        metadata: updates.metadata
-      }, metadata, (error: any, response: any) => {
+        metadata: {},
+        metadata_json: metadataJson,
+        shortcuts: updates.shortcuts || []
+      }, grpcMeta, (error: any, response: any) => {
         if (error) {
           logger.error('UpdateMemory error:', error);
           reject(error);
@@ -296,13 +330,34 @@ export class MemoryServiceClient {
   }
 
   private protoToMemory(proto: any): Memory {
-    const metadata = proto.metadata || {};
+    // Prefer `metadata_json` (full fidelity, can hold arrays) when
+    // the server populated it; fall back to the legacy `metadata`
+    // string-map for backward compat with older servers.
+    let metadata: Record<string, any> = {};
+    if (typeof proto.metadata_json === 'string' && proto.metadata_json.length > 0) {
+      try {
+        const parsed = JSON.parse(proto.metadata_json);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          metadata = parsed;
+        } else {
+          // Server should never send non-object metadata_json — but
+          // defend gracefully and fall back to the legacy map.
+          metadata = proto.metadata || {};
+        }
+      } catch (_e) {
+        // Malformed JSON — fall back to legacy map.
+        metadata = proto.metadata || {};
+      }
+    } else {
+      metadata = proto.metadata || {};
+    }
 
-    // Parse indicators if it's a string
+    // Parse indicators if it's a string (legacy compat — newer servers
+    // already serialize indicators as a nested object via metadata_json).
     if (metadata.indicators && typeof metadata.indicators === 'string') {
       try {
         metadata.indicators = JSON.parse(metadata.indicators);
-      } catch (e) {
+      } catch (_e) {
         // Leave as string if parsing fails
       }
     }
@@ -313,13 +368,13 @@ export class MemoryServiceClient {
       content: proto.content,
       context: proto.context,
       importance: proto.importance,
-      memoryType: proto.memory_type || 'unknown',  // Now read directly from proto
+      memoryType: proto.memory_type || 'unknown',
       tags: proto.tags || [],
       createdAt: this.timestampToDate(proto.created_at),
       updatedAt: this.timestampToDate(proto.updated_at),
       accessCount: proto.access_count,
       embeddingId: proto.embedding_id,
-      metadata: metadata
+      metadata
     };
   }
 

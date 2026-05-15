@@ -118,7 +118,7 @@ export const CATEGORY_MAP: Record<string, { description: string; toolKeys: strin
 };
 
 /** Tool keys that are always directly exposed (not grouped) */
-export const DIRECT_TOOLS = ['mcp_login', 'mcp_logout', 'search', 'fetch'];
+export const DIRECT_TOOLS = ['mcp_login', 'mcp_logout', 'search', 'fetch', 'get_guide'];
 
 /** Tool keys that are registered but hidden from tools/list in grouped mode */
 export const HIDDEN_TOOLS = ['mcp_authenticate'];
