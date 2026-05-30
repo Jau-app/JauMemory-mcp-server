@@ -23,26 +23,61 @@
 import type { Tool } from './index.js';
 import type { BackendClients } from '../../types/clients.js';
 import axios from 'axios';
+import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
+
+const logoutSchema = z.object({
+  /**
+   * v0.5.0+: scoped logout.
+   * - `this` (default): revoke only this session. Other devices'
+   *   sessions keep working. Matches the user expectation "log out
+   *   of this app."
+   * - `all`: revoke EVERY MCP session + OAuth + refresh + user
+   *   session for the user. The pre-v4 carpet-bomb behavior. Used
+   *   by "Log out of all devices" dashboard buttons.
+   * - `others`: revoke all sessions EXCEPT this one. Useful after
+   *   spotting a session you don't recognize.
+   *
+   * Older servers (pre-V090) ignore the field and behave as if
+   * scope=all was sent — that's the existing carpet-bomb behavior,
+   * so no NEW regression on old backends.
+   */
+  scope: z.enum(['this', 'all', 'others']).optional().default('this'),
+});
 
 export function logoutTool(clients: BackendClients): Tool {
   return {
     name: 'mcp_logout',
-    description: 'Logout and revoke the current MCP session.',
+    description: 'Logout and revoke the current MCP session. Pass scope="all" to log out of all devices, or scope="others" to log out everywhere else but here. Defaults to scope="this" (only the calling session).',
     inputSchema: {
       type: 'object',
-      properties: {},
-      required: []
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['this', 'all', 'others'],
+          description: 'Scope of the logout. "this" (default) = only this session. "all" = every device. "others" = everywhere else but here.',
+        },
+      },
+      required: [],
     },
-    handler: async (_args: any) => {
+    handler: async (args: any) => {
       const apiUrl = process.env.JAUMEMORY_API_URL;
+      const input = logoutSchema.parse(args ?? {});
 
-      // Snapshot auth headers BEFORE clearing local state — clearSession
-      // wipes the AuthManager's in-memory creds, so we wouldn't be able
-      // to authenticate the revocation call afterwards.
+      // Snapshot auth headers + session_id BEFORE clearing local
+      // state — clearSession wipes the AuthManager's in-memory creds,
+      // so we wouldn't be able to authenticate the revocation call
+      // afterwards. We also need the session_id (added in v0.5.0
+      // credentials) for scope=this/others server-side dispatch.
       let authHeaders: Record<string, string> | undefined;
+      let sessionId: string | undefined;
       try {
         authHeaders = await clients.auth.getAuthHeaders?.();
+        // The AuthManager stores credentials including sessionId
+        // (added in v0.5.0). Old credentials (pre-0.5.0) don't have
+        // it; scope=this/others on the server with no session_id
+        // returns 400, which we catch and log.
+        sessionId = clients.auth.authManager?.credentials?.sessionId;
       } catch (err) {
         // No active session — nothing to revoke server-side, but we
         // still attempt the local clear in case there's a stale cache.
@@ -74,9 +109,37 @@ export function logoutTool(clients: BackendClients): Tool {
           // bounding worst-case UX latency. Local clear has already
           // happened before this call, so the user-visible cache is gone
           // regardless of revocation outcome.
+          //
+          // 8th-audit Finding 1: scope=this and scope=others REQUIRE a
+          // session_id server-side; without it the V090 handler returns
+          // 400 missing_session_id, server revocation fails, and the
+          // user's other-device sessions stay live even though local
+          // creds are now gone. This is exactly the case for users
+          // upgrading FROM npm 0.4.0 — their keyring 'default' entry
+          // predates session_id capture. Fall back to scope=all
+          // (carpet-bomb) when sessionId is missing so server-side
+          // revocation succeeds with the pre-v4 semantics. The local
+          // half has already happened either way, so the worst case is
+          // simply that more device-level state is revoked, which is
+          // strictly safer for a logout the user just initiated.
+          let effectiveScope = input.scope;
+          if (!sessionId && (effectiveScope === 'this' || effectiveScope === 'others')) {
+            logger.warn(
+              `mcp_logout: no session_id available (likely upgraded from npm < 0.5.0); ` +
+              `falling back from scope="${effectiveScope}" to scope="all" to preserve ` +
+              `server-side revocation`,
+            );
+            effectiveScope = 'all';
+          }
+          // v0.5.0+: send scope + session_id. Old servers that don't
+          // know about the fields treat the body as empty and run
+          // the existing carpet-bomb revoke — backwards-compatible.
           await axios.post(
             `${apiUrl}/v1/auth/logout`,
-            {},
+            {
+              scope: effectiveScope,
+              ...(sessionId ? { session_id: sessionId } : {}),
+            },
             {
               headers: { ...authHeaders, 'Content-Type': 'application/json' },
               timeout: 30000,

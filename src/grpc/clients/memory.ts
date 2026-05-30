@@ -135,7 +135,7 @@ export class MemoryServiceClient {
   private async createMetadata(): Promise<grpc.Metadata> {
     const metadata = new grpc.Metadata();
     const authHeaders = await this.authManager.getAuthHeaders();
-    
+
     logger.debug('Creating gRPC metadata with auth headers:', redactSecrets(authHeaders));
 
     // Add auth headers
@@ -148,13 +148,62 @@ export class MemoryServiceClient {
     // Add client identification
     metadata.add('x-client-type', 'mcp-server');
     metadata.add('x-client-id', 'jauauth-mcp');
-    
+
     return metadata;
   }
 
-  async createMemory(request: CreateMemoryRequest): Promise<Memory> {
-    const grpcMeta = await this.createMetadata();
+  /**
+   * Wraps a gRPC call with single-retry-on-UNAUTHENTICATED. v0.5.0+
+   * pattern: an in-flight call sent with a JWT that gets revoked by
+   * a concurrent refresh-completion returns UNAUTHENTICATED; we ask
+   * the AuthManager to refresh (mutex-coalesced) and retry ONCE.
+   *
+   * Hard guarantee: at most TWO attempts per logical call. The `for`
+   * loop's `attempt < 2` cap AND the `alreadyRetried` boolean both
+   * enforce single-retry — defense in depth against a future
+   * maintainer accidentally turning this into an unbounded loop.
+   *
+   * Non-UNAUTHENTICATED errors are surfaced immediately (no retry).
+   * UNAUTHENTICATED after a fresh refresh is also surfaced (the
+   * second attempt's failure indicates a real auth problem worth
+   * showing the user).
+   */
+  private async withAuthRetry<T>(
+    fn: (metadata: grpc.Metadata) => Promise<T>,
+  ): Promise<T> {
+    let alreadyRetried = false;
+    // Hard iteration cap. Must terminate in <= 2 attempts.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const metadata = await this.createMetadata();
+      try {
+        return await fn(metadata);
+      } catch (err: any) {
+        // grpc-js Status code 16 = UNAUTHENTICATED.
+        const code = err?.code;
+        if (code === 16 && !alreadyRetried) {
+          alreadyRetried = true;
+          try {
+            await this.authManager.refreshToken();
+          } catch (refreshErr) {
+            // Refresh terminal-fail (e.g. approval_expired) — surface
+            // the ORIGINAL UNAUTHENTICATED so caller knows what
+            // initially happened. The refresh error is logged by
+            // AuthManager already.
+            logger.warn('Refresh-on-401 failed; surfacing original UNAUTHENTICATED');
+            throw err;
+          }
+          // Retry once with fresh metadata.
+          continue;
+        }
+        // Non-401 error, or 401 after retry → surface.
+        throw err;
+      }
+    }
+    // Defensive — unreachable in practice given the cap above.
+    throw new Error('withAuthRetry: iteration cap exceeded');
+  }
 
+  async createMemory(request: CreateMemoryRequest): Promise<Memory> {
     // Build the proto request. The server prefers `metadata_json` over
     // the legacy `metadata` string map for full-fidelity values
     // (arrays, nested objects). We serialize the whole `request.metadata`
@@ -166,7 +215,7 @@ export class MemoryServiceClient {
       ? JSON.stringify(request.metadata)
       : '';
 
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((grpcMeta) => new Promise((resolve, reject) => {
       this.client.createMemory({
         user_id: request.userId,
         content: request.content,
@@ -184,13 +233,11 @@ export class MemoryServiceClient {
           resolve(this.protoToMemory(response));
         }
       });
-    });
+    }));
   }
 
   async recallMemories(request: RecallMemoriesRequest): Promise<RecallMemoriesResponse> {
-    const metadata = await this.createMetadata();
-    
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((metadata) => new Promise((resolve, reject) => {
       const protoRequest: any = {
         user_id: request.userId,
         limit: request.limit || 20,
@@ -255,7 +302,7 @@ export class MemoryServiceClient {
           });
         }
       });
-    });
+    }));
   }
 
   async updateMemory(
@@ -263,15 +310,13 @@ export class MemoryServiceClient {
     userId: string,
     updates: Partial<Memory> & { shortcuts?: string[] }
   ): Promise<Memory> {
-    const grpcMeta = await this.createMetadata();
-
     // Serialize metadata to metadata_json for full fidelity (same as
     // createMemory). Legacy `metadata` map sent empty; server picks
     // up `metadata_json` per the v6 contract.
     const metadataJson =
       updates.metadata !== undefined ? JSON.stringify(updates.metadata) : '';
 
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((grpcMeta) => new Promise((resolve, reject) => {
       this.client.updateMemory({
         id,
         user_id: userId,
@@ -290,13 +335,11 @@ export class MemoryServiceClient {
           resolve(this.protoToMemory(response));
         }
       });
-    });
+    }));
   }
 
   async deleteMemory(id: string, userId: string): Promise<void> {
-    const metadata = await this.createMetadata();
-    
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((metadata) => new Promise((resolve, reject) => {
       this.client.deleteMemory({
         id,
         user_id: userId
@@ -308,13 +351,11 @@ export class MemoryServiceClient {
           resolve();
         }
       });
-    });
+    }));
   }
 
   async getMemory(id: string, userId: string): Promise<Memory> {
-    const metadata = await this.createMetadata();
-    
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((metadata) => new Promise((resolve, reject) => {
       this.client.getMemory({
         id,
         user_id: userId
@@ -326,7 +367,7 @@ export class MemoryServiceClient {
           resolve(this.protoToMemory(response));
         }
       });
-    });
+    }));
   }
 
   private protoToMemory(proto: any): Memory {

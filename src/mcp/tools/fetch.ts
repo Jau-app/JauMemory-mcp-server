@@ -190,8 +190,8 @@ Returns:
 
 Parameters:
 - query (optional): Search query (defaults to "recent" if not provided)
-- limit (optional): Maximum results to return (default: 10)
-- mode (optional): Search mode - "keyword", "semantic", or "hybrid" (default: "keyword")
+- limit (optional): Maximum results to return (default: 10; clamped to 100 on the "recent" special-verb path)
+- mode (optional): Search mode - "keyword", "semantic", or "hybrid". **No default** — omit to let the classifier route by query shape. Setting mode with query="recent" bypasses the recent special-case (sends through normal keyword/semantic search instead).
 - project (optional): Filter by project name
 - fuzzyThreshold (optional): Fuzzy search threshold 0-1
 - template (optional): Use predefined search template
@@ -229,15 +229,15 @@ Parameters:
 - content (optional): New content (replaces existing)
 - context (optional): New context (replaces existing)
 - importance (optional): New importance (0-1)
-- tags (optional): New tags. When provided, REPLACES the existing tag base BEFORE shortcuts apply on top.
+- tags (optional): Tags to ADD to the memory. Strictly additive in v1 — unioned with the existing tag set. Cannot remove a tag through this field; that's v2 territory.
 - metadata (optional): Explicit metadata patch. Deep-merges into existing metadata LAST (after shortcuts), so e.g. { "assigned_to": [] } clears an existing assignment array.
 - shortcuts (optional): Shortcut flags — additive. No shortcut ever CLEARS existing values; only the explicit metadata field can clear/replace.
 
-Merge order on update:
+Merge order on update (v1):
   1. Existing tags + metadata loaded from the row
-  2. Tags base = explicit \`tags\` if provided, else carry existing
+  2. Tags = existing ∪ explicit \`tags\` (if provided) — additive only; proto3 \`repeated string\` cannot distinguish "absent" from "[]" on the wire, so a "replace tags" semantic isn't expressible without an out-of-band discriminator. To remove a tag, delete + recreate, or wait for v2.
   3. Shortcuts apply (additive on top of base)
-  4. Explicit \`metadata\` deep-merges LAST — final wins
+  4. Explicit \`metadata\` deep-merges LAST — final wins (the only knob that can clear array metadata fields like \`assigned_to: []\`)
 
 Usage:
 update({

@@ -6,7 +6,7 @@
 
 import axios from 'axios';
 import { exec as execCb } from 'child_process';
-import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes, randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -123,6 +123,29 @@ interface AuthCredentials {
   jwtExpiry: number;
   refreshToken?: string;
   syncId: string;
+  /**
+   * Client-generated UUID identifying this device/install. Generated
+   * once at first auth via `getOrCreateDeviceId()` and persisted to
+   * a SEPARATE keyring entry so it survives logout and credential
+   * wipes. Per-device session binding requires this to be sent on
+   * every authenticate + refresh call.
+   */
+  deviceId?: string;
+  /**
+   * Session-bound refresh secret. Returned by the server on
+   * authenticate (only when device_id was sent). Rotates on every
+   * refresh. Presenting it (plus the current JWT and matching
+   * device_id) is what proves we own the session on the
+   * /v1/auth/mcp/refresh endpoint — no need to re-send the
+   * long-lived auth_token.
+   */
+  refreshSecret?: string;
+  /**
+   * Server-side `mcp_sessions.id` for this session. Used by the
+   * scoped logout call so the server can revoke this specific
+   * session row (scope=this) without resolving via JWT hash.
+   */
+  sessionId?: string;
 }
 
 interface McpLoginResponse {
@@ -141,6 +164,34 @@ interface AuthResponse {
   token_type: string;
   expires_in: number;
   user_id: string;
+  /** v0.5.0+: session id for scoped logout. */
+  session_id?: string;
+  /** v0.5.0+: session-bound refresh secret. Stored in keyring. */
+  refresh_secret?: string;
+}
+
+interface RefreshResponse {
+  access_token: string;
+  refresh_secret: string;
+  expires_in: number;
+}
+
+/**
+ * 8th-audit Finding 2: mirror the server-side device_id validator
+ * exactly so a corrupted keyring/file value is caught before it
+ * reaches the wire, and so `getOrCreateDeviceId()` can self-heal
+ * by regenerating instead of busy-looping on `invalid_device_id`.
+ *
+ * Server validator (Rust):
+ *   `c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')`
+ *   `1..=64` chars
+ *
+ * Keep these two definitions in lockstep. If the Rust class ever
+ * changes, update this regex in the same commit.
+ */
+const SAFE_DEVICE_ID_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+function isSafeDeviceId(s: string): boolean {
+  return SAFE_DEVICE_ID_RE.test(s);
 }
 
 export class AuthManager {
@@ -425,17 +476,23 @@ export class AuthManager {
     syncId.update(authToken);
     const syncIdHex = syncId.digest('hex');
 
+    // v0.5.0+: send device_id so the server can populate
+    // mcp_sessions.device_id and return a refresh_secret. Old servers
+    // (pre-V090 migration) safely ignore the extra field.
+    const deviceId = await this.getOrCreateDeviceId();
+
     logger.debug('Authenticating with sync_id approach');
 
     try {
       const authResponse = await axios.post<AuthResponse>(
         `${this.apiUrl}/v1/auth/mcp/authenticate`,
         {
-          sync_id: syncIdHex
+          sync_id: syncIdHex,
+          device_id: deviceId,
         }
       );
 
-      const { access_token, expires_in, user_id } = authResponse.data;
+      const { access_token, expires_in, user_id, session_id, refresh_secret } = authResponse.data;
 
       this.credentials = {
         requestId,
@@ -443,7 +500,13 @@ export class AuthManager {
         userId: user_id,
         jwtToken: access_token,
         jwtExpiry: Date.now() + (expires_in * 1000),
-        syncId: syncIdHex
+        syncId: syncIdHex,
+        deviceId,
+        // refresh_secret only present on v0.5.0+ servers; older
+        // servers omit it and we fall back to legacy broken-refresh
+        // (forced re-login hourly) — same UX as today.
+        refreshSecret: refresh_secret,
+        sessionId: session_id,
       };
 
       await this.saveCachedCredentials();
@@ -561,18 +624,116 @@ export class AuthManager {
     await this.authenticateWithToken(requestId, authToken);
   }
 
+  /**
+   * In-flight refresh promise. Used to coalesce concurrent callers
+   * onto a single backend round-trip. Without this, two simultaneous
+   * `getAuthHeaders()` calls (e.g. two parallel gRPC requests both
+   * proactively refreshing right at the 5-min-before-expiry boundary)
+   * would each independently POST to /v1/auth/mcp/refresh — the
+   * second would fail because the server's refresh_secret_hash and
+   * jwt_token_hash have already rotated.
+   *
+   * The mutex only coalesces WITHIN-process callers. Cross-process
+   * races (two separate Node processes sharing the same keyring
+   * credentials) can still occur; the loser gets 401 unknown_session
+   * and falls back to fresh login. Documented + acceptable for v1.
+   */
+  private refreshPromise: Promise<void> | null = null;
+
   async refreshToken(): Promise<void> {
+    // Coalesce concurrent in-process callers onto one refresh.
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+    this.refreshPromise = this.doRefresh().finally(() => {
+      this.refreshPromise = null;
+    });
+    return this.refreshPromise;
+  }
+
+  /**
+   * Actual refresh implementation. Wrapped in `refreshPromise` mutex
+   * by the public `refreshToken()`.
+   *
+   * Calls the new POST /v1/auth/mcp/refresh endpoint (v0.5.0+).
+   * Presents refresh_secret + device_id + the (possibly expired) JWT
+   * — the server verifies the trio against the session row and
+   * rotates both jwt_token_hash and refresh_secret_hash in lockstep
+   * if they match.
+   *
+   * Terminal-error categories trigger an immediate `clearSession()`
+   * because there is no longer any way to refresh; the user must
+   * fresh-login. Transient errors (network, 5xx) bubble up so the
+   * caller can retry on the next request.
+   */
+  private async doRefresh(): Promise<void> {
     if (!this.credentials) {
       throw new Error('No credentials to refresh');
     }
 
-    logger.debug('Refreshing JWT token...');
+    // Legacy credentials: pre-v0.5.0 install / upgrade-without-fresh-
+    // login. The new endpoint can't accept us; force fresh login.
+    if (!this.credentials.deviceId || !this.credentials.refreshSecret) {
+      logger.warn('Credentials predate v0.5.0 (no deviceId / refreshSecret); clearing for fresh login');
+      await this.clearSession();
+      throw new Error('Credentials predate v0.5.0. Please re-authenticate.');
+    }
+
+    logger.debug('Refreshing JWT via /v1/auth/mcp/refresh');
 
     try {
-      await this.authenticateWithToken(this.credentials.requestId, this.credentials.authToken);
+      const response = await axios.post<RefreshResponse>(
+        `${this.apiUrl}/v1/auth/mcp/refresh`,
+        {
+          refresh_secret: this.credentials.refreshSecret,
+          device_id:      this.credentials.deviceId,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.credentials.jwtToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10_000,
+        }
+      );
+
+      const { access_token, refresh_secret, expires_in } = response.data;
+      this.credentials.jwtToken      = access_token;
+      this.credentials.refreshSecret = refresh_secret;
+      this.credentials.jwtExpiry     = Date.now() + (expires_in * 1000);
+      await this.saveCachedCredentials();
+      logger.debug('JWT + refresh_secret rotated silently');
+
     } catch (error) {
-      logger.error('Failed to refresh token:', error);
-      throw new Error('Token refresh failed. Please re-authenticate.');
+      // Terminal vs transient categorization. Codes match the
+      // structured errors the Rust handler at
+      // src/features/security/mcp_auth.rs::mcp_refresh returns.
+      if (axios.isAxiosError(error) && error.response) {
+        const code = (error.response.data as { error?: string } | undefined)?.error;
+        const TERMINAL = new Set<string>([
+          'approval_expired',         // 410 — user's window genuinely past
+          'device_binding_required',  // 412 — legacy row, must fresh-login
+          'device_mismatch',          // 401 — keyring tampered or wrong machine
+          'invalid_device_id',        // 400 — stored device_id was corrupted or
+                                      //       doesn't match the server validator's
+                                      //       [A-Za-z0-9._:-]{1,64} class.
+                                      //       Without this entry, the client would
+                                      //       treat 400 as transient and busy-loop.
+          'session_revoked',          // 401 — admin force-logout
+          'invalid_refresh_secret',   // 401 — secret rotated by another process
+          'invalid_signature',        // 401 — JWT secret rotated server-side
+          'unknown_session',          // 401 — multi-process loser, stale token
+          'missing_bearer',           // 401 — programmer error here, but treat as terminal
+        ]);
+        if (code && TERMINAL.has(code)) {
+          logger.warn(`Refresh terminal error (${code}); clearing session for fresh login`);
+          await this.clearSession();
+          throw new Error(`Session ended (${code}). Please re-authenticate.`);
+        }
+      }
+      // Transient (network, 5xx): caller retries on the next request.
+      logger.error('Refresh failed transiently', error);
+      throw new Error('Token refresh failed; will retry.');
     }
   }
 
@@ -887,6 +1048,87 @@ export class AuthManager {
       logger.debug('OS keychain not available, using file-based storage');
     }
     return false;
+  }
+
+  /**
+   * Read (or generate + persist) the device-id UUID.
+   *
+   * v0.5.0+: the server's session-bound refresh mechanism requires
+   * a stable per-device identifier. We generate one at first auth,
+   * store it in a SEPARATE keyring entry (`'jaumemory-mcp', 'device-id'`)
+   * so it survives:
+   *   - logout (clearSession only wipes the 'default' credentials entry)
+   *   - credential rotation
+   *   - upgrade-without-fresh-login
+   * Same physical install → same device_id forever, until the user
+   * explicitly cleans the keyring.
+   *
+   * Falls back to a file-based device id when keyring isn't available
+   * (platform missing native lib, NTFS perms, etc.). The fallback file
+   * sits next to the credentials cache.
+   *
+   * Returns the device_id string (always non-empty on return).
+   */
+  private async getOrCreateDeviceId(): Promise<string> {
+    // 1. Try keyring 'device-id' entry first.
+    try {
+      const { Entry } = await import('@napi-rs/keyring');
+      const entry = new Entry('jaumemory-mcp', 'device-id');
+      const existing = entry.getPassword();
+      if (existing && isSafeDeviceId(existing)) {
+        return existing;
+      }
+      if (existing) {
+        // 8th-audit Finding 2: persisted value failed the server's
+        // [A-Za-z0-9._:-]{1,64} validator. Without overwriting, the
+        // next refresh attempt returns 400 invalid_device_id, the
+        // refresh handler treats it as terminal and clears
+        // credentials — but clearSession() intentionally does NOT
+        // wipe this 'device-id' entry (it survives logout by
+        // design). So the same corrupted value would keep coming
+        // back and the client would never self-heal. Overwrite it
+        // with a fresh UUID here so the corrupted state self-heals
+        // on the very next auth attempt.
+        logger.warn(
+          'Persisted device_id (keyring) is malformed; regenerating to self-heal',
+        );
+      }
+      // Generate, persist, return.
+      const id = randomUUID();
+      entry.setPassword(id);
+      logger.debug('Generated and persisted new device_id (keyring)');
+      return id;
+    } catch {
+      // Fall through to file-based fallback.
+      logger.debug('Keyring unavailable for device_id; using file fallback');
+    }
+
+    // 2. File fallback — store next to credentials cache, mode 600.
+    const deviceIdFile = path.join(path.dirname(this.cacheFile), 'device-id');
+    try {
+      const existing = await fs.readFile(deviceIdFile, 'utf-8');
+      const trimmed = existing.trim();
+      if (isSafeDeviceId(trimmed)) {
+        return trimmed;
+      }
+      if (trimmed.length > 0) {
+        // Same self-heal as the keyring branch above.
+        logger.warn(
+          'Persisted device_id (file) is malformed; regenerating to self-heal',
+        );
+      }
+    } catch {
+      // Not present yet, fall through to create.
+    }
+    const id = randomUUID();
+    try {
+      await fs.mkdir(path.dirname(deviceIdFile), { recursive: true, mode: 0o700 });
+      await fs.writeFile(deviceIdFile, id, { mode: 0o600 });
+      logger.debug('Generated and persisted new device_id (file)');
+    } catch (e) {
+      logger.warn('Could not persist device_id to file; will regenerate per-process', e);
+    }
+    return id;
   }
 
   async clearSession(): Promise<void> {

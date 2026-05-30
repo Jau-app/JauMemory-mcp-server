@@ -103,10 +103,38 @@ export class PatternServiceClient {
     return metadata;
   }
 
+  /**
+   * Single-retry-on-UNAUTHENTICATED wrapper. See memory.ts for the
+   * documented invariants — same pattern.
+   */
+  private async withAuthRetry<T>(
+    fn: (metadata: grpc.Metadata) => Promise<T>,
+  ): Promise<T> {
+    let alreadyRetried = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const metadata = await this.createMetadata();
+      try {
+        return await fn(metadata);
+      } catch (err: any) {
+        const code = err?.code;
+        if (code === 16 && !alreadyRetried) {
+          alreadyRetried = true;
+          try {
+            await this.authManager.refreshToken();
+          } catch (refreshErr) {
+            logger.warn('Refresh-on-401 failed; surfacing original UNAUTHENTICATED');
+            throw err;
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('withAuthRetry: iteration cap exceeded');
+  }
+
   async analyzePatterns(request: AnalyzePatternsRequest): Promise<AnalyzePatternsResponse> {
-    const metadata = await this.createMetadata();
-    
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((metadata) => new Promise((resolve, reject) => {
       const protoRequest: any = {
         user_id: request.userId
       };
@@ -157,7 +185,7 @@ export class PatternServiceClient {
           });
         }
       });
-    });
+    }));
   }
 
   private protoToPattern(proto: any): Pattern {
@@ -186,9 +214,7 @@ export class PatternServiceClient {
   }
 
   async getMemoryStats(request: any): Promise<any> {
-    const metadata = await this.createMetadata();
-    
-    return new Promise((resolve, reject) => {
+    return this.withAuthRetry((metadata) => new Promise((resolve, reject) => {
       const protoRequest: any = {
         query: request.query,
         tags: request.tags || [],
@@ -212,6 +238,6 @@ export class PatternServiceClient {
           });
         }
       });
-    });
+    }));
   }
 }
