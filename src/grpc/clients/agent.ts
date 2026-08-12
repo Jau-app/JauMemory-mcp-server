@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -161,16 +162,7 @@ export class AgentServiceClient {
   async createAgent(request: CreateAgentRequest): Promise<Agent> {
     const metadata = await this.getMetadata();
 
-    // Add a reasonable deadline (30 seconds from now)
-    const deadline = new Date();
-    deadline.setSeconds(deadline.getSeconds() + 30);
-    
     return new Promise((resolve, reject) => {
-      // Create options with deadline
-      const options = {
-        deadline: deadline
-      };
-      
       this.client.createAgent({
         name: request.name,
         personality_traits: request.personalityTraits || [],
@@ -179,7 +171,7 @@ export class AgentServiceClient {
         created_by: request.createdBy,
         id: request.id,  // Pass the ID if provided
         initial_learning_rate: request.initialLearningRate  // Pass the learning rate if provided
-      }, metadata, options, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CreateAgent error:', error);
           // Check if it's a cancellation error but the operation might have succeeded
@@ -202,7 +194,7 @@ export class AgentServiceClient {
       
       this.client.getAgent({
         agent_id: agentId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetAgent error:', error);
           reject(error);
@@ -220,7 +212,7 @@ export class AgentServiceClient {
       if (status) request.status = status;
       if (updatePrompts) request.update_prompts = updatePrompts;
 
-      this.client.updateAgent(request, metadata, (error: any, response: any) => {
+      this.client.updateAgent(request, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateAgent error:', error);
           reject(error);
@@ -238,7 +230,7 @@ export class AgentServiceClient {
       this.client.updateAgentName({
         agent_id: agentId,
         new_name: newName
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateAgentName error:', error);
           reject(error);
@@ -255,7 +247,7 @@ export class AgentServiceClient {
       const request: any = {};
       if (status) request.status = status;
 
-      this.client.listAgents(request, metadata, (error: any, response: any) => {
+      this.client.listAgents(request, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ListAgents error:', error);
           reject(error);
@@ -276,7 +268,7 @@ export class AgentServiceClient {
         category: request.category,
         project_context: request.projectContext,
         metadata: request.metadata || {}
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RememberForAgent error:', error);
           reject(error);
@@ -296,7 +288,7 @@ export class AgentServiceClient {
         memory_id: memoryId,
         category: category,
         project_context: projectContext
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('LinkMemoryToAgent error:', error);
           reject(error);
@@ -317,7 +309,7 @@ export class AgentServiceClient {
         category: request.category,
         project_context: request.projectContext,
         limit: request.limit || 20
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RecallAgentMemories error:', error);
           reject(error);
@@ -341,7 +333,7 @@ export class AgentServiceClient {
         context_snapshot: request.contextSnapshot,
         attempted_solution: request.attemptedSolution,
         project_context: request.projectContext
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('HandleErrorLearning error:', error);
           reject(error);
@@ -361,7 +353,7 @@ export class AgentServiceClient {
         pattern_id: request.patternId,
         solution: request.solution,
         verification_steps: request.verificationSteps || []
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('SaveErrorSolution error:', error);
           reject(error);
@@ -380,7 +372,7 @@ export class AgentServiceClient {
         agent_id: agentId,
         pattern_id: patternId,
         attempted_solution: attemptedSolution
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('RecordFailedAttempt error:', error);
           reject(error);
@@ -401,7 +393,7 @@ export class AgentServiceClient {
         content: request.content,
         lessons_learned: request.lessonsLearned || [],
         related_agents: request.relatedAgents || []
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('CreateReflection error:', error);
           reject(error);
@@ -418,7 +410,7 @@ export class AgentServiceClient {
       const request: any = { agent_id: agentId };
       if (reflectionType) request.reflection_type = reflectionType;
 
-      this.client.getReflections(request, metadata, (error: any, response: any) => {
+      this.client.getReflections(request, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetAgentReflections error:', error);
           reject(error);

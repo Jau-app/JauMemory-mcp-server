@@ -30,6 +30,11 @@
 import * as grpc from '@grpc/grpc-js';
 import { createHash } from 'crypto';
 import { logger } from '../utils/logger.js';
+import {
+  assertIssuerPairing,
+  PRODUCTION_GRPC_ADDRESS,
+  resolveApiUrl,
+} from '../config/apiUrl.js';
 
 const isProduction =
   process.env.NODE_ENV === 'production' ||
@@ -43,7 +48,13 @@ if (isProduction && explicitDisable) {
 
 export const grpcUseTls = !explicitDisable;
 export const grpcAddress =
-  process.env.JAUMEMORY_GRPC_URL || 'mem.jau.app:50051';
+  process.env.JAUMEMORY_GRPC_URL || PRODUCTION_GRPC_ADDRESS;
+
+// Hardening 0.5.1 (Fix 2, B2): the bearer JWT travels in gRPC metadata,
+// so the API origin and gRPC target must belong to the same issuer, and
+// plaintext gRPC is loopback-only. Violations are fatal at load — before
+// any credentialed call can be made.
+assertIssuerPairing(resolveApiUrl(), grpcAddress, grpcUseTls);
 
 /**
  * Pinned SHA-256 fingerprint (hex, lowercase, colon-stripped) of an

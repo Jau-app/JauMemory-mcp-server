@@ -24,7 +24,9 @@ export function authenticateTool(clients: BackendClients): Tool {
           description: 'The request ID from mcp_login response (required)'
         }
       },
-      required: ['auth_token']
+      // Hardening 0.5.1 (Fix 5, B6-audit): request_id has always been
+      // required at runtime; the declaration now says so.
+      required: ['auth_token', 'request_id']
     },
     handler: async (args: any) => {
       try {

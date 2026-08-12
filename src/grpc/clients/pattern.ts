@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { redactSecrets } from '../../utils/redaction.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline, heavyDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -167,7 +168,7 @@ export class PatternServiceClient {
         protoRequest.min_confidence = request.minConfidence;
       }
 
-      this.client.analyzePatterns(protoRequest, metadata, (error: any, response: any) => {
+      this.client.analyzePatterns(protoRequest, metadata, heavyDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('AnalyzePatterns error:', error);
           reject(error);
@@ -223,7 +224,7 @@ export class PatternServiceClient {
         end_date: request.endDate
       };
 
-      this.client.getMemoryStats(protoRequest, metadata, (error: any, response: any) => {
+      this.client.getMemoryStats(protoRequest, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetMemoryStats error:', error);
           reject(error);

@@ -25,6 +25,7 @@ import type { BackendClients } from '../../types/clients.js';
 import axios from 'axios';
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
+import { boundedPost } from '../../config/httpPolicy.js';
 
 const logoutSchema = z.object({
   /**
@@ -43,6 +44,13 @@ const logoutSchema = z.object({
    * so no NEW regression on old backends.
    */
   scope: z.enum(['this', 'all', 'others']).optional().default('this'),
+  /**
+   * Hardening 0.5.1 (Fix 2, auditor-recommended escape hatch): when
+   * true, clear local credentials WITHOUT attempting server-side
+   * revocation. This is the explicit offline-logout selector — env-var
+   * absence is no longer a behavior switch.
+   */
+  local_only: z.boolean().optional().default(false),
 });
 
 export function logoutTool(clients: BackendClients): Tool {
@@ -57,11 +65,14 @@ export function logoutTool(clients: BackendClients): Tool {
           enum: ['this', 'all', 'others'],
           description: 'Scope of the logout. "this" (default) = only this session. "all" = every device. "others" = everywhere else but here.',
         },
+        local_only: {
+          type: 'boolean',
+          description: 'When true, clear local credentials only — no server-side revocation call is made. Default false.',
+        },
       },
       required: [],
     },
     handler: async (args: any) => {
-      const apiUrl = process.env.JAUMEMORY_API_URL;
       const input = logoutSchema.parse(args ?? {});
 
       // Snapshot auth headers + session_id BEFORE clearing local
@@ -71,6 +82,7 @@ export function logoutTool(clients: BackendClients): Tool {
       // credentials) for scope=this/others server-side dispatch.
       let authHeaders: Record<string, string> | undefined;
       let sessionId: string | undefined;
+      let revokeOrigin: string | undefined;
       try {
         authHeaders = await clients.auth.getAuthHeaders?.();
         // The AuthManager stores credentials including sessionId
@@ -78,6 +90,10 @@ export function logoutTool(clients: BackendClients): Tool {
         // it; scope=this/others on the server with no session_id
         // returns 400, which we catch and log.
         sessionId = clients.auth.authManager?.credentials?.sessionId;
+        // Hardening 0.5.1 (Fix 2): revocation goes to the ORIGIN that
+        // issued these credentials — never an env-resolved URL. If no
+        // credentials exist there is nothing to revoke anywhere.
+        revokeOrigin = clients.auth.authManager?.credentials?.origin;
       } catch (err) {
         // No active session — nothing to revoke server-side, but we
         // still attempt the local clear in case there's a stale cache.
@@ -99,7 +115,7 @@ export function logoutTool(clients: BackendClients): Tool {
       // headers (no active session) or if the API URL isn't configured.
       let serverRevoked = false;
       let serverError: string | undefined;
-      if (authHeaders && apiUrl) {
+      if (!input.local_only && authHeaders && revokeOrigin) {
         try {
           // Review M2: 30s timeout (was 5s). For a "credential possibly
           // stolen" logout flow, 5s is too aggressive — TLS handshake
@@ -134,8 +150,8 @@ export function logoutTool(clients: BackendClients): Tool {
           // v0.5.0+: send scope + session_id. Old servers that don't
           // know about the fields treat the body as empty and run
           // the existing carpet-bomb revoke — backwards-compatible.
-          await axios.post(
-            `${apiUrl}/v1/auth/logout`,
+          await boundedPost(
+            `${revokeOrigin}/v1/auth/logout`,
             {
               scope: effectiveScope,
               ...(sessionId ? { session_id: sessionId } : {}),
@@ -169,9 +185,9 @@ export function logoutTool(clients: BackendClients): Tool {
       }
 
       let outcome = 'Local credentials cleared.';
-      if (!apiUrl) {
-        outcome += ' Server revocation skipped (JAUMEMORY_API_URL not set).';
-      } else if (!authHeaders) {
+      if (input.local_only) {
+        outcome += ' Server revocation intentionally skipped (local_only=true).';
+      } else if (!authHeaders || !revokeOrigin) {
         outcome += ' Server revocation skipped (no active session).';
       } else if (serverRevoked) {
         outcome += ' Server session revoked.';

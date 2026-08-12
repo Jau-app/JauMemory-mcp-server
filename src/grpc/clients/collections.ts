@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline, heavyDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,7 +110,7 @@ export class CollectionsServiceClient {
         name: request.name,
         description: request.description,
         memory_ids: request.memoryIds || []
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CreateCollection error:', error);
           reject(error);
@@ -129,7 +130,7 @@ export class CollectionsServiceClient {
         offset: 0,
         sort_by: 'created_at',
         sort_desc: true
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ListCollections error:', error);
           reject(error);
@@ -149,7 +150,7 @@ export class CollectionsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.getCollectionWithMemories({
         collection_id: collectionId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetCollection error:', error);
           reject(error);
@@ -167,7 +168,7 @@ export class CollectionsServiceClient {
       this.client.addMemoryToCollection({
         collection_id: collectionId,
         memory_id: memoryId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('AddMemoryToCollection error:', error);
           reject(error);
@@ -185,7 +186,7 @@ export class CollectionsServiceClient {
       this.client.removeMemoryFromCollection({
         collection_id: collectionId,
         memory_id: memoryId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('RemoveMemoryFromCollection error:', error);
           reject(error);
@@ -204,7 +205,7 @@ export class CollectionsServiceClient {
         collection_id: collectionId,
         name: updates.name,
         description: updates.description
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateCollection error:', error);
           reject(error);
@@ -221,7 +222,7 @@ export class CollectionsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.deleteCollection({
         collection_id: collectionId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('DeleteCollection error:', error);
           reject(error);
@@ -240,7 +241,7 @@ export class CollectionsServiceClient {
         collection_id: collectionId,
         summarize_only: options.summarizeOnly || false,
         title: options.title
-      }, metadata, (error: any, response: any) => {
+      }, metadata, heavyDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ConsolidateCollection error:', error);
           reject(error);

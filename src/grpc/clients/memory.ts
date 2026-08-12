@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { redactSecrets } from '../../utils/redaction.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -225,7 +226,7 @@ export class MemoryServiceClient {
         metadata: {},
         metadata_json: metadataJson,
         shortcuts: request.shortcuts || []
-      }, grpcMeta, (error: any, response: any) => {
+      }, grpcMeta, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CreateMemory error:', error);
           reject(error);
@@ -286,7 +287,7 @@ export class MemoryServiceClient {
         }
       }
 
-      this.client.recallMemories(protoRequest, metadata, (error: any, response: any) => {
+      this.client.recallMemories(protoRequest, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RecallMemories error:', error);
           reject(error);
@@ -327,7 +328,7 @@ export class MemoryServiceClient {
         metadata: {},
         metadata_json: metadataJson,
         shortcuts: updates.shortcuts || []
-      }, grpcMeta, (error: any, response: any) => {
+      }, grpcMeta, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateMemory error:', error);
           reject(error);
@@ -343,7 +344,7 @@ export class MemoryServiceClient {
       this.client.deleteMemory({
         id,
         user_id: userId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('DeleteMemory error:', error);
           reject(error);
@@ -359,7 +360,7 @@ export class MemoryServiceClient {
       this.client.getMemory({
         id,
         user_id: userId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetMemory error:', error);
           reject(error);

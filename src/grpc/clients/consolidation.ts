@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { heavyDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -99,7 +100,7 @@ export class ConsolidationServiceClient {
           archive_originals: request.strategy.archive_originals !== false
         },
         dry_run: request.dry_run || false
-      }, metadata, (error: any, response: any) => {
+      }, metadata, heavyDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ConsolidateMemories error:', error);
           reject(error);

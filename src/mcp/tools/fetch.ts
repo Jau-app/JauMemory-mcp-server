@@ -113,10 +113,10 @@ This is the first step in the MCP authentication process. After calling this, yo
 
 Parameters:
 - auth_token (required): The authentication token from the approval page
-- request_id (optional): The request ID from mcp_login response
+- request_id (required): The request ID from mcp_login response
 
 Usage:
-mcp_authenticate({ auth_token: "your-auth-token" })
+mcp_authenticate({ auth_token: "your-auth-token", request_id: "your-request-id" })
 
 Returns:
 - Success confirmation
@@ -124,7 +124,7 @@ Returns:
 
 This is the second step in MCP authentication. Call this after completing browser approval from mcp_login.`,
       url: "/api/v1/mcp/tools#mcp_authenticate",
-      metadata: { category: "authentication", required_params: ["auth_token"] }
+      metadata: { category: "authentication", required_params: ["auth_token", "request_id"] }
     },
 
     "mcp_logout": {

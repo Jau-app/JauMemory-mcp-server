@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,7 +91,7 @@ export class CredentialsServiceClient {
         rotation_reminder_days: request.rotation_reminder_days,
         scopes: request.scopes || [],
         notes: request.notes
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('StoreCredential error:', error);
           reject(error);
@@ -117,7 +118,7 @@ export class CredentialsServiceClient {
         provider: request.provider,
         credential_type: request.credential_type,
         active_only: request.active_only
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ListCredentials error:', error);
           reject(error);
@@ -137,7 +138,7 @@ export class CredentialsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.getCredential({
         credential_id: credentialId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetCredential error:', error);
           reject(error);
@@ -180,7 +181,7 @@ export class CredentialsServiceClient {
         rotation_reminder_days: request.rotation_reminder_days,
         scopes: request.scopes || [],
         notes: request.notes
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateCredential error:', error);
           reject(error);
@@ -197,7 +198,7 @@ export class CredentialsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.deleteCredential({
         credential_id: credentialId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('DeleteCredential error:', error);
           reject(error);
@@ -220,7 +221,7 @@ export class CredentialsServiceClient {
         credential_id: request.credential_id,
         new_value: request.new_value,
         new_secondary_value: request.new_secondary_value
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RotateCredential error:', error);
           reject(error);
@@ -242,7 +243,7 @@ export class CredentialsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.verifyCredential({
         credential_id: credentialId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('VerifyCredential error:', error);
           reject(error);
@@ -272,7 +273,7 @@ export class CredentialsServiceClient {
         limit: request.limit || 50,
         offset: request.offset || 0,
         action: request.action
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetAccessLog error:', error);
           reject(error);
@@ -299,7 +300,7 @@ export class CredentialsServiceClient {
     const metadata = await this.getMetadata();
 
     return new Promise((resolve, reject) => {
-      this.client.getProviderPresets({}, metadata, (error: any, response: any) => {
+      this.client.getProviderPresets({}, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetProviderPresets error:', error);
           reject(error);

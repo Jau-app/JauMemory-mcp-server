@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,7 +97,7 @@ export class ToolsServiceClient {
         output_schema_json: request.output_schema_json,
         tags: request.tags || [],
         metadata_json: request.metadata_json
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CreateTool error:', error);
           reject(error);
@@ -127,7 +128,7 @@ export class ToolsServiceClient {
         active_only: request.active_only,
         include_public: request.include_public,
         search: request.search
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ListTools error:', error);
           reject(error);
@@ -147,7 +148,7 @@ export class ToolsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.getTool({
         identifier
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetTool error:', error);
           reject(error);
@@ -200,7 +201,7 @@ export class ToolsServiceClient {
         output_schema_json: request.output_schema_json,
         tags: request.tags || [],
         metadata_json: request.metadata_json
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateTool error:', error);
           reject(error);
@@ -217,7 +218,7 @@ export class ToolsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.deleteTool({
         tool_id: toolId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('DeleteTool error:', error);
           reject(error);
@@ -256,7 +257,7 @@ export class ToolsServiceClient {
         request_body: request.request_body,
         query_params: request.query_params || {},
         extra_headers: request.extra_headers || {}
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CallTool error:', error);
           reject(error);
@@ -281,7 +282,7 @@ export class ToolsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.renderTool({
         tool_id: toolId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RenderTool error:', error);
           reject(error);
@@ -306,7 +307,7 @@ export class ToolsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.checkHealth({
         tool_id: toolId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CheckHealth error:', error);
           reject(error);
@@ -329,7 +330,7 @@ export class ToolsServiceClient {
       this.client.linkCredential({
         tool_id: toolId,
         credential_id: credentialId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('LinkCredential error:', error);
           reject(error);
@@ -346,7 +347,7 @@ export class ToolsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.unlinkCredential({
         tool_id: toolId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UnlinkCredential error:', error);
           reject(error);

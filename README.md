@@ -185,15 +185,11 @@ Add to ChatGPT MCP configuration:
 
 ### Advanced Configuration (Optional)
 
-Environment variables are **not required** for basic setup. Authentication is handled automatically via the `mcp_login` tool.
+Environment variables are **not required** for basic setup. Authentication is handled by the `mcp_login` and `mcp_authenticate` tools; no identity or credential values belong in configuration files.
 
-However, you can optionally create a `.env` file to pre-configure your username and email:
+Optional settings (see `.env.example` for the full list):
 
 ```env
-# Optional: Pre-configure credentials (authentication still required via mcp_login)
-JAUMEMORY_USERNAME=your-username
-JAUMEMORY_EMAIL=your-email@example.com
-
 # Optional: Logging configuration
 LOG_LEVEL=info
 NODE_ENV=production

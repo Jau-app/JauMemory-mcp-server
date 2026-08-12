@@ -313,8 +313,7 @@ async function main() {
     logger.error('Failed to start server:', error);
     
     if (error instanceof Error && error.message.includes('authenticate')) {
-      logger.error('Authentication failed. Please check your credentials in .env file');
-      logger.error('You can either provide JAUMEMORY_AUTH_HASH or username/password/email for initial setup');
+      logger.error('Authentication failed. Authenticate with the mcp_login and mcp_authenticate tools.');
     }
     
     process.exit(1);

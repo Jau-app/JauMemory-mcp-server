@@ -20,8 +20,8 @@ A Model Context Protocol (MCP) server that connects Claude Desktop to the JauMem
 
 ```bash
 # Clone the repository
-git clone https://github.com/Jau-app/jauauth-mcp-server.git
-cd jauauth-mcp-server
+git clone https://github.com/Jau-app/jaumemory-mcp-server.git
+cd jaumemory-mcp-server
 
 # Install dependencies
 npm install
@@ -40,39 +40,24 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-### Step 2: Configure Authentication
+### Step 2: Authenticate
 
-You have two options for authentication:
-
-#### Option A: First-Time Setup (Recommended)
-
-Edit `.env` and add your JauMemory credentials:
-
-```env
-JAUMEMORY_USERNAME=your_username
-JAUMEMORY_PASSWORD=your_password
-JAUMEMORY_EMAIL=your_email@example.com
-```
-
-Run the server once to complete authentication:
+Authentication happens through the MCP tools — no credentials go in any
+file. Start the server, then from your MCP client run `mcp_login`, open
+the approval URL it prints, approve in the browser, and complete with
+`mcp_authenticate` using the code shown plus the request_id from
+`mcp_login`.
 
 ```bash
 npm start
 ```
 
 You'll see:
-1. A message asking you to approve the connection
-2. An approval URL (open this in your browser)
-3. Log in to JauMemory and approve the connection
-4. The server will save an auth hash for future use
-
-#### Option B: Using Existing Auth Hash
-
-If you've already authenticated, add the auth hash to `.env`:
-
-```env
-JAUMEMORY_AUTH_HASH=your_auth_hash_here
-```
+1. `mcp_login` returns an approval URL and a request_id
+2. Open the URL, log in to JauMemory, and approve the connection
+3. Complete with `mcp_authenticate` using the code shown plus the request_id
+4. Credentials are cached securely (OS keychain when available); later
+   sessions reconnect and refresh automatically
 
 ### Step 3: Configure Claude Desktop
 
@@ -87,7 +72,7 @@ Add the following to your Claude Desktop configuration file:
   "mcpServers": {
     "jaumemory": {
       "command": "node",
-      "args": ["/absolute/path/to/jauauth-mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/jaumemory-mcp-server/dist/index.js"],
       "env": {
         "NODE_ENV": "production"
       }
@@ -96,7 +81,7 @@ Add the following to your Claude Desktop configuration file:
 }
 ```
 
-Replace `/absolute/path/to/jauauth-mcp-server` with the actual path to your installation.
+Replace `/absolute/path/to/jaumemory-mcp-server` with the actual path to your installation.
 
 ## Usage
 
@@ -200,18 +185,21 @@ npm run lint
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `JAUMEMORY_API_URL` | API endpoint | `https://mem.jau.app` |
-| `JAUMEMORY_GRPC_URL` | gRPC endpoint | `mem.jau.app:50051` |
-| `JAUMEMORY_AUTH_HASH` | Saved auth hash | - |
-| `JAUMEMORY_USERNAME` | Username for initial auth | - |
-| `JAUMEMORY_PASSWORD` | Password for initial auth | - |
-| `JAUMEMORY_EMAIL` | Email for initial auth | - |
+| `JAUMEMORY_API_URL` | API endpoint (https required; http only on localhost) | `https://mem.jau.app` |
+| `JAUMEMORY_GRPC_URL` | gRPC endpoint (must pair with the API issuer) | `mem.jau.app:50051` |
+| `JAUMEMORY_GRPC_USE_TLS` | gRPC TLS (false allowed only for loopback) | `true` |
+| `JAUMEMORY_GRPC_PINNED_SHA256` | Optional cert-pin fingerprint | - |
+| `MCP_SERVER_NAME` / `MCP_SERVER_VERSION` | Reported MCP identity | `jaumemory` / pkg version |
+| `MCP_TOOL_LOADING` | Tool loading mode | `flat` |
 | `LOG_LEVEL` | Logging level | `info` |
 | `NODE_ENV` | Environment | `production` |
 
+Authentication uses the `mcp_login` / `mcp_authenticate` tools; no
+credential variables are supported in configuration files.
+
 ## Support
 
-- **Issues**: https://github.com/Jau-app/jauauth-mcp-server/issues
+- **Issues**: https://github.com/Jau-app/jaumemory-mcp-server/issues
 - **Documentation**: https://jau.app/docs
 - **Email**: support@jau.app
 

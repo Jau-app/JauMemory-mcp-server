@@ -18,6 +18,8 @@ import { z } from 'zod';
 import type { Tool } from './index.js';
 import type { BackendClients } from '../../types/clients.js';
 import { logger } from '../../utils/logger.js';
+import { FETCH_DOCS_TIMEOUT_MS } from '../../config/httpPolicy.js';
+import { resolveApiUrl } from '../../config/apiUrl.js';
 
 const getGuideSchema = z.object({
   topic: z.string().optional(),
@@ -25,7 +27,8 @@ const getGuideSchema = z.object({
   search: z.string().optional(),
 });
 
-const API_BASE = process.env.JAUMEMORY_API_URL || 'https://mem.jau.app';
+// Hardening 0.5.1 (Fix 2): single validated resolver, no direct env read.
+const API_BASE = resolveApiUrl();
 
 export function getGuideTool(_clients: BackendClients): Tool {
   return {
@@ -80,11 +83,20 @@ export function getGuideTool(_clients: BackendClients): Tool {
       logger.info('get_guide fetching docs', { url });
 
       let response: Response;
+      // Hardening 0.5.1 (Fix 1, B3-audit): bound the native fetch — it
+      // previously had no abort/timeout at all.
+      const abort = new AbortController();
+      const abortTimer = setTimeout(() => abort.abort(), FETCH_DOCS_TIMEOUT_MS);
       try {
-        response = await fetch(url);
+        response = await fetch(url, { signal: abort.signal });
       } catch (e) {
+        if (abort.signal.aborted) {
+          throw new Error(`get_guide: timed out after ${FETCH_DOCS_TIMEOUT_MS} ms fetching ${url}`);
+        }
         const msg = e instanceof Error ? e.message : String(e);
         throw new Error(`get_guide: network error fetching ${url}: ${msg}`);
+      } finally {
+        clearTimeout(abortTimer);
       }
 
       if (response.status === 404) {

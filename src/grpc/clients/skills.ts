@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,7 +91,7 @@ export class SkillsServiceClient {
         pipeline_json: request.pipeline_json,
         tldr_json: request.tldr_json,
         safety_limits_json: request.safety_limits_json
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('CreateSkill error:', error);
           reject(error);
@@ -121,7 +122,7 @@ export class SkillsServiceClient {
         active_only: request.active_only,
         include_public: request.include_public,
         search: request.search
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ListSkills error:', error);
           reject(error);
@@ -141,7 +142,7 @@ export class SkillsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.getSkill({
         identifier
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('GetSkill error:', error);
           reject(error);
@@ -190,7 +191,7 @@ export class SkillsServiceClient {
         pipeline_json: request.pipeline_json,
         tldr_json: request.tldr_json,
         safety_limits_json: request.safety_limits_json
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('UpdateSkill error:', error);
           reject(error);
@@ -207,7 +208,7 @@ export class SkillsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.deleteSkill({
         skill_id: skillId
-      }, metadata, (error: any) => {
+      }, metadata, standardDeadline(), (error: any) => {
         if (error) {
           logger.error('DeleteSkill error:', error);
           reject(error);
@@ -246,7 +247,7 @@ export class SkillsServiceClient {
         step_overrides: request.step_overrides || {},
         resume_token: request.resume_token,
         llm_response: request.llm_response
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ExecuteSkill error:', error);
           reject(error);
@@ -291,7 +292,7 @@ export class SkillsServiceClient {
     return new Promise((resolve, reject) => {
       this.client.renderSkill({
         skill_id: skillId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RenderSkill error:', error);
           reject(error);
@@ -326,7 +327,7 @@ export class SkillsServiceClient {
         output_mapping_json: request.output_mapping_json,
         is_optional: request.is_optional,
         condition_json: request.condition_json
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('AddStep error:', error);
           reject(error);
@@ -344,7 +345,7 @@ export class SkillsServiceClient {
       this.client.removeStep({
         skill_id: skillId,
         step_id: stepId
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('RemoveStep error:', error);
           reject(error);
@@ -362,7 +363,7 @@ export class SkillsServiceClient {
       this.client.reorderSteps({
         skill_id: skillId,
         step_ids: stepIds
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('ReorderSteps error:', error);
           reject(error);
@@ -389,7 +390,7 @@ export class SkillsServiceClient {
         category_id: request.category_id,
         tools_only: request.tools_only,
         skills_only: request.skills_only
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) {
           logger.error('SearchToolkit error:', error);
           reject(error);

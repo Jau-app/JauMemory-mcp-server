@@ -20,10 +20,16 @@ npm run start
 ```
 
 The server will:
-- Generate a login request with username, email, connection_name, and date_nonce
+- Generate a login request containing date_nonce, connection_name, and a
+  request_hash (no username or email is ever sent — they are only inputs
+  to the locally computed hash)
 - Send this to the backend server
 - Receive a request_id and approval URL
 - Display the URL in the console
+
+> Deprecation note (0.5.1): this environment-driven startup flow is
+> deprecated and will be removed in 0.6.0. The supported flow is the
+> `mcp_login` + `mcp_authenticate` tools.
 
 ### 3. Web Approval
 - Open the approval URL in your browser

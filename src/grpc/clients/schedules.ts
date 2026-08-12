@@ -12,6 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../../utils/logger.js';
 import { AuthManager } from '../../auth/AuthManager.js';
+import { standardDeadline } from '../deadline.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,7 +65,7 @@ export class SchedulesServiceClient {
   }): Promise<any> {
     const metadata = await this.getMetadata();
     return new Promise((resolve, reject) => {
-      this.client.scheduleSkill(request, metadata, (error: any, response: any) => {
+      this.client.scheduleSkill(request, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve(response); }
       });
     });
@@ -83,7 +84,7 @@ export class SchedulesServiceClient {
         status: request.status,
         limit: request.limit || 50,
         offset: request.offset || 0
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve({ runs: response.runs || [] }); }
       });
     });
@@ -100,7 +101,7 @@ export class SchedulesServiceClient {
   }): Promise<any> {
     const metadata = await this.getMetadata();
     return new Promise((resolve, reject) => {
-      this.client.updateSchedule(request, metadata, (error: any, response: any) => {
+      this.client.updateSchedule(request, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve(response); }
       });
     });
@@ -109,7 +110,7 @@ export class SchedulesServiceClient {
   async deleteSchedule(scheduleId: string): Promise<void> {
     const metadata = await this.getMetadata();
     return new Promise((resolve, reject) => {
-      this.client.deleteSchedule({ schedule_id: scheduleId }, metadata, (error: any) => {
+      this.client.deleteSchedule({ schedule_id: scheduleId }, metadata, standardDeadline(), (error: any) => {
         if (error) { reject(error); } else { resolve(); }
       });
     });
@@ -118,7 +119,7 @@ export class SchedulesServiceClient {
   async retriggerSchedule(scheduleId: string): Promise<any> {
     const metadata = await this.getMetadata();
     return new Promise((resolve, reject) => {
-      this.client.retriggerSchedule({ schedule_id: scheduleId }, metadata, (error: any, response: any) => {
+      this.client.retriggerSchedule({ schedule_id: scheduleId }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve(response); }
       });
     });
@@ -137,7 +138,7 @@ export class SchedulesServiceClient {
         status: request.status,
         limit: request.limit || 50,
         offset: request.offset || 0
-      }, metadata, (error: any, response: any) => {
+      }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve({ logs: response.logs || [] }); }
       });
     });
@@ -146,7 +147,7 @@ export class SchedulesServiceClient {
   async getExecutionLog(logId: string): Promise<any> {
     const metadata = await this.getMetadata();
     return new Promise((resolve, reject) => {
-      this.client.getExecutionLog({ log_id: logId }, metadata, (error: any, response: any) => {
+      this.client.getExecutionLog({ log_id: logId }, metadata, standardDeadline(), (error: any, response: any) => {
         if (error) { reject(error); } else { resolve(response); }
       });
     });
