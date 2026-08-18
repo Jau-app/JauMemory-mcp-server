@@ -189,27 +189,21 @@ Returns:
       text: `Searches and retrieves memories using keyword or semantic similarity.
 
 Parameters:
-- query (optional): Search query (defaults to "recent" if not provided)
+- query (optional): Search query. Omit for a filters-only search (at
+  least one of tags / minImportance / timeRange must then be given).
 - limit (optional): Maximum results to return (default: 10; clamped to 100 on the "recent" special-verb path)
 - mode (optional): Search mode - "keyword", "semantic", or "hybrid". **No default** — omit to let the classifier route by query shape. Setting mode with query="recent" bypasses the recent special-case (sends through normal keyword/semantic search instead).
-- project (optional): Filter by project name
-- fuzzyThreshold (optional): Fuzzy search threshold 0-1
-- template (optional): Use predefined search template
+- tags (optional): Filter to memories carrying ANY of these tags
+- minImportance (optional): Only memories with importance >= this value
+- timeRange (optional): { start, end } creation window
 
 Usage:
-recall({ query: "authentication bug", limit: 5, project: "webapp" })
+recall({ query: "authentication bug", limit: 5, tags: ["webapp"] })
 
-Templates:
-- "resume_work": Recent tasks/TODOs
-- "debug_context": Errors and solutions
-- "learning_path": Insights and learning
-- "daily_review": Today's memories
-
-Time-based queries:
-- "recent": Last 24 hours
-- "today": Today only
-- "yesterday": Yesterday only
-- "this week": Last 7 days
+Special query: "recent" (exactly that word, with mode omitted)
+returns the newest memories. It is the ONLY special query — "today",
+"yesterday", "this week" etc. are ordinary search text; use timeRange
+for date windows.
 
 Returns:
 - Array of matching memories with scores
@@ -299,22 +293,24 @@ Returns:
 
     "consolidate": {
       id: "consolidate",
-      title: "consolidate - Merge Similar Memories",
-      text: `Consolidates similar memories to reduce redundancy and extract insights.
+      title: "consolidate - Merge Similar Memories (not available yet)",
+      text: `NOT AVAILABLE YET: standalone consolidation is not implemented
+server-side — every call returns a clean error pointing to
+consolidate_collection, which summarizes one collection's memories
+for real.
 
-Parameters:
-- similarityThreshold (optional): Minimum similarity 0-1 (default: 0.7)
-- minGroupSize (optional): Minimum memories to form group (default: 2)
-- dryRun (optional): Preview without making changes (default: false)
-- archiveOriginals (optional): Archive original memories (default: true)
+Parameters (accepted by the client, currently rejected by the server):
+- similarity_threshold (optional): Minimum similarity 0-1 (default: 0.7)
+- min_group_size (optional): Minimum memories to form group (default: 2)
+- archive_originals (optional): Archive original memories (default: true)
+- dry_run (optional): Preview without making changes (default: false)
 
 Usage:
-consolidate({ dryRun: true, similarityThreshold: 0.8 })
+consolidate_collection({ collection_id: "coll-uuid", title: "Sprint recap" })
 
 Returns:
-- Consolidation results
-- New insight memories created
-- Original memories archived/merged`,
+- Currently: an error explaining standalone consolidation is not
+  available and pointing to consolidate_collection`,
       url: "/api/v1/mcp/tools#consolidate",
       metadata: { category: "analytics", required_params: [] }
     },
@@ -422,7 +418,7 @@ Returns:
     },
     "consolidate_collection": {
       id: "consolidate_collection", title: "consolidate_collection - Consolidate Collection",
-      text: `Consolidate all memories in a collection into a comprehensive summary.\n\nParameters:\n- collection_id (required): UUID of the collection\n- title (optional): Title for the consolidated memory\n- summarize_only (optional): Only create summary without modifying collection (default: false)\n\nUsage:\nconsolidate_collection({ collection_id: "coll-uuid", title: "Sprint Summary", summarize_only: true })\n\nReturns: Consolidated memory ID and summary`,
+      text: `Consolidate all memories in a collection into a comprehensive summary.\n\nALWAYS WRITES: a consolidated memory is created and added to the collection on every call.\n\nParameters:\n- collection_id (required): UUID of the collection\n- title (optional): Title for the consolidated memory\n- summarize_only (optional): Affects the RESPONSE only — true returns just the summary text, false also reports the new memory ID. The memory is written either way (default: false)\n\nUsage:\nconsolidate_collection({ collection_id: "coll-uuid", title: "Sprint Summary" })\n\nReturns: Consolidated memory ID and summary`,
       url: "/api/v1/mcp/tools#consolidate_collection", metadata: { category: "collections", required_params: ["collection_id"] }
     },
 

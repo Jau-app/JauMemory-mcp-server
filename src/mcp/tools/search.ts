@@ -78,7 +78,7 @@ export function search(_clients: BackendClients): Tool {
         },
         {
           id: "consolidate",
-          title: "consolidate - Consolidate similar memories and extract insights",
+          title: "consolidate - Merge similar memories (not available yet; use consolidate_collection)",
           url: "/api/v1/mcp/fetch?id=consolidate"
         },
         {

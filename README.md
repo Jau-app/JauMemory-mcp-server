@@ -8,9 +8,9 @@ A Model Context Protocol (MCP) server that provides persistent memory capabiliti
 - 🔍 **Smart Recall**: Search memories using keywords or semantic similarity
 - 📊 **Pattern Analysis**: Automatically detect patterns and extract insights
 - 🏷️ **Automatic Classification**: Memories are automatically categorized (errors, solutions, insights, questions)
-- 🔄 **Memory Consolidation**: Merge related memories to prevent redundancy
+- 🔄 **Collection Consolidation**: Roll a collection's memories up into a single summary memory
 - 🎯 **Importance Scoring**: Content-based importance assessment with learning value metrics
-- 🤝 **Multi-Agent Support**: Coordinate between multiple AI agents with notifications and assignments
+- 🤝 **Multi-Agent Support**: Agent identities, shared memory, assignments via shortcut flags, error-pattern learning
 - 🚀 **Production Ready**: Connects to JauMemory cloud service with secure authentication
 
 ## Prerequisites
@@ -213,7 +213,26 @@ NODE_ENV=production
 
 ### MCP Tools Available
 
-Once integrated with Claude, you'll have access to these tools:
+The server exposes **50 tools**. Full argument contracts for every
+tool are available in-band — call
+`get_guide({ topic: "tools/<category>/<name>" })`, or browse the
+same docs at https://mem.jau.app/v1/help.
+
+| Category | Tools |
+|---|---|
+| Discovery | `search`, `fetch`, `get_guide` |
+| Auth | `mcp_login`, `mcp_authenticate`, `mcp_logout` |
+| Memory | `remember`, `recall`, `forget`, `update`, `analyze`, `consolidate`, `memory_stats` |
+| Agents | `create_agent`, `list_agents`, `agent_memory`, `agent_error_learning`, `agent_reflection`, `update_agent_name`, `agent_collaboration` |
+| Collections | `create_collection`, `list_collections`, `get_collection`, `add_to_collection`, `remove_from_collection`, `update_collection`, `delete_collection`, `consolidate_collection` |
+| Credential vault | `vault_store`, `vault_list`, `vault_rotate` |
+| Tool registry | `tool_create`, `tool_list`, `tool_render`, `tool_update`, `tool_call` |
+| Skills | `skill_create`, `skill_list`, `skill_render`, `skill_execute` |
+| Toolkit | `toolkit_search` |
+| Scheduling | `skill_schedule`, `skill_schedule_list`, `skill_schedule_cancel`, `skill_schedule_retrigger`, `skill_tasks_pending`, `skill_task_retrigger`, `skill_tasks_list` |
+| Berrry integration | `berrry_register_tool`, `berrry_create_tool` |
+
+Highlights with examples:
 
 #### Core Memory Tools
 
@@ -261,13 +280,12 @@ analyze({
 })
 ```
 
-**`consolidate`** - Consolidate similar memories
-```javascript
-consolidate({
-  similarityThreshold: 0.7,
-  minGroupSize: 2
-})
-```
+**`consolidate`** - Consolidate similar memories (args:
+`similarity_threshold`, `min_group_size`, `archive_originals`,
+`dry_run`). Note: the server does not implement standalone
+consolidation yet and returns a clean error pointing to
+`consolidate_collection`, which summarizes one collection's memories
+for real.
 
 **`memory_stats`** - Get statistics about memories
 ```javascript
@@ -288,10 +306,13 @@ create_agent({
 })
 ```
 
-**`check_notifications`** - Check for agent notifications
+**`agent_error_learning`** - Two-strike error learning for agents
 ```javascript
-check_notifications({
-  agentId: "reviewer-001"
+agent_error_learning({
+  action: "report",
+  agentId: "…uuid…",
+  errorSignature: "TypeError user.profile undefined",
+  errorMessage: "Undefined property access in user service"
 })
 ```
 
@@ -307,11 +328,14 @@ remember({
 ```
 
 Available shortcuts:
-- **Types**: `--todo`, `--task`, `--bug`, `--question`, `--note`
+- **Types**: `--todo`, `--task`, `--bug`, `--question`, `--note`, `--reflection`
 - **Status**: `--pending`, `--wip`, `--done`, `--blocked [reason]`
 - **Priority**: `--low`, `--medium`, `--high`, `--urgent`
 - **Assignment**: `--assign @agent-name`, `--notify @agent1,@agent2`
-- **Context**: `--project name`, `--thread id`, `--parent memory-id`
+- **Context**: `--project name`, `--repo url`
+
+The full semantics live in
+`get_guide({ topic: "concepts/shortcuts" })`.
 
 ## Memory Types
 

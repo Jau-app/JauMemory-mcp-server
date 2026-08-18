@@ -5,7 +5,7 @@ import type { BackendClients } from '../../types/clients.js';
 const recallSchema = z.object({
   query: z.string().optional().describe('Search query. Omit for filters-only search.'),
   mode: z.enum(['keyword', 'semantic', 'hybrid']).optional()
-    .describe('Search mode. Defaults to hybrid.'),
+    .describe('Search mode. Omit to let the server classify the query and pick the strategy.'),
   tags: z.array(z.string()).optional()
     .describe('Filter results to memories with ANY of these tags.'),
   timeRange: z.object({
@@ -32,7 +32,7 @@ export function recallTool(clients: BackendClients): Tool {
         mode: {
           type: 'string',
           enum: ['keyword', 'semantic', 'hybrid'],
-          description: 'Search mode. Defaults to hybrid on the backend.'
+          description: 'Search mode. Omit to let the server classify the query and pick the strategy.'
         },
         tags: {
           type: 'array',

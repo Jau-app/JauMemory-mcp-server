@@ -58,20 +58,20 @@ Use the list_agents tool to see all available agents and their specializations.
 1. **Analyze the task** - Break it down into subtasks
 2. **Identify required agents** - Match subtasks to agent specializations
 3. **Create memories** - Use remember with --assign @agent flags to delegate tasks
-4. **Monitor progress** - Use check_notifications to track agent responses
+4. **Monitor progress** - Recall by agent name to find assigned work and status updates
 5. **Coordinate responses** - Compile results and manage dependencies
 
 ## Key Commands
 - **List agents**: \`list_agents()\`
 - **Assign task**: \`remember({ content: "Task description", shortcuts: ["--task", "--assign @agent-id"] })\`
-- **Check responses**: \`check_notifications({ agentId: "${agentId}" })\`
+- **Find assigned work**: \`recall({ query: "${agentId}" })\`
 - **Update status**: \`update({ memoryId: "id", shortcuts: ["--done"] })\`
 
-## Communication Protocol
-- Use --notify @agent for urgent messages
-- Use --assign @agent for task delegation
+## Coordination Conventions
+- --assign @agent and --notify @agent store the names in the memory's
+  metadata (assigned_to / notify_list); they do not send messages.
+  Agents discover work by recalling their own name.
 - Use --project flag to group related work
-- Check notifications regularly for agent updates
 
 Begin by listing available agents and analyzing the task requirements.`;
       }
@@ -128,7 +128,7 @@ You should now:
 
 ## Memory Access
 - Recall your memories: \`agent_memory({ action: "recall", agentId: "${agent.id}" })\`
-- Store new learnings: \`agent_memory({ action: "link", agentId: "${agent.id}", content: "..." })\`
+- Store new learnings: first \`remember({ content: "..." })\`, then \`agent_memory({ action: "link", agentId: "${agent.id}", memoryId: "<id from remember>" })\`
 - Report errors: \`agent_error_learning({ action: "report", agentId: "${agent.id}", ... })\`
 - Create reflections: \`agent_reflection({ action: "create", agentId: "${agent.id}", ... })\`
 
@@ -200,21 +200,20 @@ remember({
 })
 \`\`\`
 
-### 5. Establish Communication Channels
+### 5. Establish Coordination Conventions
 - Use project flag consistently: \`--project ${project.replace(/\s+/g, '-').toLowerCase()}\`
-- Create status updates with \`--notify @team\`
-- Use \`check_notifications()\` regularly
+- Tag status updates with \`--notify @team\` (stored in the memory's
+  metadata for recall — not a message channel)
 
 ### 6. Monitor Progress
 \`\`\`javascript
-// Check project memories
-recall({ 
-  query: "${project}",
-  project: "${project.replace(/\s+/g, '-').toLowerCase()}"
+// Check project memories (include the project name in the query)
+recall({
+  query: "${project.replace(/\s+/g, '-').toLowerCase()}"
 })
 
-// Review team notifications
-check_notifications()
+// Review work assigned to a teammate
+recall({ query: "@database-architect" })
 \`\`\`
 
 ## Coordination Best Practices
