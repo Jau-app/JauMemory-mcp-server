@@ -5,6 +5,21 @@ All notable changes to JauMemory MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-08-18
+
+### 📝 Documentation accuracy (no code behavior changes)
+- `skill_schedule.timezone`: the server accepts **UTC only** — other zones
+  are now rejected server-side; express cron expressions in UTC.
+- `skill_schedule.notify_on_failure` / `notify_on_success`: marked
+  **reserved** — stored but currently inert (no notification is sent).
+- `skill_execute.step_overrides`: marked **reserved** — any non-empty map
+  is rejected by the server.
+- `vault_store.provider`: corrected — it is an organizational label only
+  and does **not** auto-configure auth headers; `injection_method` is a
+  stored preference and execution currently always injects via the auth
+  header.
+- The `fetch` tool-catalog entries updated to match all of the above.
+
 ## [0.3.2] - 2025-10-22
 
 ### 🔒 Security

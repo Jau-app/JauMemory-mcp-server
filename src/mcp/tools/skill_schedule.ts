@@ -26,7 +26,7 @@ export function skillScheduleTool(clients: BackendClients): Tool {
         },
         timezone: {
           type: 'string',
-          description: 'Timezone for schedule (default: UTC)'
+          description: 'Only "UTC" is accepted currently; express the cron in UTC. Other zones are rejected by the server.'
         },
         max_retries: {
           type: 'number',
@@ -38,11 +38,11 @@ export function skillScheduleTool(clients: BackendClients): Tool {
         },
         notify_on_failure: {
           type: 'boolean',
-          description: 'Notify on execution failure (default: true)'
+          description: 'Reserved: stored but currently inert (no notification is sent)'
         },
         notify_on_success: {
           type: 'boolean',
-          description: 'Notify on execution success (default: false)'
+          description: 'Reserved: stored but currently inert (no notification is sent)'
         }
       },
       required: ['skill_id', 'cron_expression']

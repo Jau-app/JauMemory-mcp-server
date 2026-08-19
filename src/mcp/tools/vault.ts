@@ -14,7 +14,7 @@ import { redactSecrets } from '../../utils/redaction.js';
 export function vaultStoreTool(clients: BackendClients): Tool {
   return {
     name: 'vault_store',
-    description: 'Store a new API credential in the secure vault. The secret value is encrypted at rest and never returned in responses. Use provider presets (e.g. "openai", "stripe") to auto-configure auth headers.',
+    description: 'Store a new API credential in the secure vault. The secret value is encrypted at rest and never returned in responses. At call time the credential is injected as an HTTP header (auth_header/auth_prefix, default "Authorization: Bearer <value>").',
     inputSchema: {
       type: 'object',
       properties: {
@@ -33,7 +33,7 @@ export function vaultStoreTool(clients: BackendClients): Tool {
         },
         provider: {
           type: 'string',
-          description: 'Provider name (e.g. "openai", "stripe", "github"). Auto-configures auth headers if a preset exists.'
+          description: 'Provider label for organizing credentials (e.g. "openai"). Informational only: does NOT auto-configure headers — set auth_header/auth_prefix explicitly if the defaults do not fit.'
         },
         description: {
           type: 'string',

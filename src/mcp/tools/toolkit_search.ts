@@ -103,7 +103,7 @@ export function skillExecuteTool(clients: BackendClients): Tool {
         step_overrides: {
           type: 'object',
           additionalProperties: { type: 'string' },
-          description: 'Per-step parameter overrides as key-value pairs'
+          description: 'Reserved and not yet implemented: any non-empty map is rejected by the server'
         },
         resume_token: {
           type: 'string',
